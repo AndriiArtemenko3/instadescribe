@@ -78,7 +78,7 @@ export function DemoCharactersPanel({
                 />
                 <button
                   type="submit"
-                  className="rounded p-1 text-success-400 hover:bg-success-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
+                  className="rounded p-1 text-success-800 hover:bg-success-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
                   aria-label="Apply rename"
                 >
                   <Check size={14} />
@@ -86,7 +86,7 @@ export function DemoCharactersPanel({
                 <button
                   type="button"
                   onClick={() => setEditingId(null)}
-                  className="rounded p-1 text-neutral-400 hover:bg-neutral-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
+                  className="rounded p-1 text-neutral-500 hover:bg-neutral-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
                   aria-label="Cancel rename"
                 >
                   <X size={14} />
@@ -96,10 +96,10 @@ export function DemoCharactersPanel({
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-neutral-900">{entity.name}</p>
-                  <p className="text-xs text-neutral-400">
+                  <p className="text-xs text-neutral-500">
                     {sceneCountFor(entity.id, scenes)} scenes · pronoun “{entity.pronoun}”
                     {entity.user_renamed && (
-                      <span className={cn('ml-1 text-brand-500')}>· renamed</span>
+                      <span className={cn('ml-1 text-brand-800')}>· renamed</span>
                     )}
                   </p>
                 </div>

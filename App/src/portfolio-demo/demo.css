@@ -10,6 +10,13 @@
  * with Helvetica Neue/Arial approximating it elsewhere.
  */
 :root {
+  /* Demo-scoped accessibility override: the app's placeholder primary green
+     (hsl 160 72% 38%) fails AA with white label text (~2.5:1). The demo
+     darkens it to hsl(158 74% 26%) ≈ #117350 (white text ≥ 5.8:1) without
+     touching the shared application tokens (demo.css loads after index.css
+     and only in this entry). */
+  --primary: 158 74% 26%;
+
   --pd-media: #16181c;
   --pd-raised: #1a1c20;
   --pd-ink: #f2f4f7;

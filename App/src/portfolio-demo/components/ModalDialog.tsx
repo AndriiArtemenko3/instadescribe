@@ -80,7 +80,7 @@ export function ModalDialog({ titleId, title, onClose, children, maxWidth = 640 
           <button
             data-autofocus
             onClick={onClose}
-            className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-150 hover:text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
+            className="rounded p-1 text-neutral-500 transition-colors hover:bg-neutral-150 hover:text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
             aria-label={`Close ${title}`}
           >
             <X size={14} />

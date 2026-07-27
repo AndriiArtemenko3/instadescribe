@@ -30,6 +30,9 @@ export default function OnboardingPage() {
   const [data, setData] = useState<DemoData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [nonce, setNonce] = useState(0)
+  // Bumping retryNonce re-runs the fetch effect — "Try again" genuinely
+  // retries (previously the effect's deps never changed after a failure).
+  const [retryNonce, setRetryNonce] = useState(0)
 
   const needsData = !textView && isWide
   useEffect(() => {
@@ -45,7 +48,7 @@ export default function OnboardingPage() {
     return () => {
       cancelled = true
     }
-  }, [needsData, data])
+  }, [needsData, data, retryNonce])
 
   if (textView) return <TextWalkthrough narrow={false} embed={embed} eligibleWidth={ELIGIBLE_WIDTH} />
   if (!isWide) return <TextWalkthrough narrow embed={embed} eligibleWidth={ELIGIBLE_WIDTH} />
@@ -69,6 +72,7 @@ export default function OnboardingPage() {
               onClick={() => {
                 setError(null)
                 setData(null)
+                setRetryNonce((n) => n + 1)
               }}
             >
               Try again

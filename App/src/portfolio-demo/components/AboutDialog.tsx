@@ -15,7 +15,7 @@ export function AboutDialog({ embed, onClose }: AboutDialogProps) {
           An interactive product walkthrough of{' '}
           <strong className="font-medium text-neutral-900">InstaScribe</strong>, an
           audio-description authoring tool. Everything here runs from files bundled with this
-          page — there is no account, no upload, no server, and no AI or model call.
+          page — there is no account, no upload, no server, and no live model or API call.
         </p>
         <ul className="list-disc space-y-1 pl-5">
           <li>
@@ -30,8 +30,9 @@ export function AboutDialog({ embed, onClose }: AboutDialogProps) {
             They never reflect your edits — the interface says so wherever they appear.
           </li>
           <li>
-            <strong className="font-medium text-neutral-900">Browser voice:</strong> "Read my
-            text" uses your browser's own speech synthesis, so the voice varies by device.
+            <strong className="font-medium text-neutral-900">On-device voice:</strong> "Read my
+            text" speaks through your browser's own LOCAL voice only (never a remote speech
+            service); where no on-device voice exists, the control is withheld and says so.
           </li>
           <li>
             <strong className="font-medium text-neutral-900">Timing checks:</strong> simple local

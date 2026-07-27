@@ -90,7 +90,7 @@ export function DemoSceneList({
                       Scene {scene.sceneNumber}
                     </span>
                   </span>
-                  <span className="text-xs text-neutral-400">
+                  <span className="text-xs text-neutral-500">
                     {formatTime(scene.startSecs)}–{formatTime(scene.endSecs)}
                   </span>
                 </span>
@@ -99,10 +99,10 @@ export function DemoSceneList({
                   className={cn(
                     'line-clamp-2 block text-xs leading-relaxed',
                     !scene.active
-                      ? 'text-neutral-400'
+                      ? 'text-neutral-500'
                       : scene.text.trim()
                         ? 'text-neutral-600'
-                        : 'italic text-neutral-400',
+                        : 'italic text-neutral-500',
                   )}
                 >
                   {scene.text.trim() || 'No description yet'}
@@ -110,7 +110,7 @@ export function DemoSceneList({
 
                 {status === 'conflict' && collision && (
                   <span
-                    className="mt-1.5 inline-flex items-center gap-1 rounded-sm bg-danger-50 px-1.5 py-0.5 text-[10px] font-medium text-danger-400"
+                    className="mt-1.5 inline-flex items-center gap-1 rounded-sm bg-danger-50 px-1.5 py-0.5 text-[10px] font-medium text-danger-800"
                     title={`This description talks over dialogue for about ${collision.overlapSecs.toFixed(1)}s.`}
                   >
                     <AlertTriangle size={10} strokeWidth={2} />
@@ -145,8 +145,8 @@ export function DemoSceneList({
                   className={cn(
                     'flex h-4 w-4 items-center justify-center rounded-sm border transition-colors',
                     scene.active
-                      ? 'border-brand-400 bg-brand-400 text-neutral-0 hover:border-danger-400 hover:bg-danger-400'
-                      : 'border-neutral-300 bg-neutral-0 text-neutral-400 hover:border-brand-400 hover:text-brand-400',
+                      ? 'border-brand-600 bg-brand-600 text-neutral-0 hover:border-danger-400 hover:bg-danger-400'
+                      : 'border-neutral-300 bg-neutral-0 text-neutral-500 hover:border-brand-600 hover:text-brand-600',
                   )}
                 >
                   {scene.active ? (

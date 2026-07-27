@@ -27,7 +27,7 @@ export function DemoPanelTabs({ active, onChange }: Props) {
             'flex-1 border-b-2 text-xs font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-400',
             active === t.id
               ? 'border-brand-400 text-neutral-900'
-              : 'border-transparent text-neutral-400 hover:text-neutral-700',
+              : 'border-transparent text-neutral-500 hover:text-neutral-900',
           )}
         >
           {t.label}

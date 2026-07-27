@@ -43,10 +43,8 @@ interface WalkthroughOverlayProps {
   onNext: () => void
   onBack: () => void
   onExit: () => void
-  /** Completion-step offers (contract stage 5): restart & return/close. */
+  /** Completion card's single secondary action. */
   onRestartDemo?: () => void
-  exitDemoLabel?: string
-  onExitDemo?: () => void
 }
 
 /**
@@ -64,8 +62,6 @@ export function WalkthroughOverlay({
   onBack,
   onExit,
   onRestartDemo,
-  exitDemoLabel,
-  onExitDemo,
 }: WalkthroughOverlayProps) {
   const step = steps[index]
   const isLast = index === steps.length - 1
@@ -93,19 +89,30 @@ export function WalkthroughOverlay({
     }
   }, [recompute])
 
-  // Focus management: modal steps take focus in the card; action steps move
-  // focus to the highlighted control itself; when an action completes, focus
-  // the enabled continue button — so the keyboard path never stalls.
+  // Focus management: modal steps take focus in the card. For action steps
+  // the title, rationale and instruction are announced FIRST (polite live
+  // region), then focus moves to the highlighted control, which also carries
+  // the card body as its accessible description for context on focus.
+  const [announcement, setAnnouncement] = useState('')
   useEffect(() => {
-    if (step?.mode === 'modal') {
+    if (!step) return
+    if (step.mode === 'modal') {
+      setAnnouncement('')
       primaryRef.current?.focus()
-    } else if (step?.mode === 'action' && step.selector) {
-      const el = document.querySelector<HTMLElement>(step.selector)
-      if (!el) return
-      const target = el.matches('button, a[href], [tabindex]')
+      return
+    }
+    setAnnouncement(`${step.title}. ${step.body} ${step.actionHint ?? ''}`)
+    const el = step.selector ? document.querySelector<HTMLElement>(step.selector) : null
+    const target = el
+      ? el.matches('button, a[href], [tabindex]')
         ? el
         : el.querySelector<HTMLElement>('button, a[href], [tabindex]')
-      target?.focus()
+      : null
+    if (target) target.setAttribute('aria-describedby', `pd-walk-body-${step.id}`)
+    const t = window.setTimeout(() => target?.focus(), 450)
+    return () => {
+      window.clearTimeout(t)
+      target?.removeAttribute('aria-describedby')
     }
   }, [index, step])
   useEffect(() => {
@@ -197,13 +204,15 @@ export function WalkthroughOverlay({
       className="pd-tour-card"
       style={cardStyle}
     >
-      <p className="font-mono text-[11px] tracking-wide text-neutral-400">
+      <p className="font-mono text-[11px] tracking-wide text-neutral-500">
         STEP {index + 1} OF {steps.length}
       </p>
       <h2 id={`pd-walk-title-${step.id}`} className="mt-1 text-sm font-semibold text-neutral-900">
         {step.title}
       </h2>
-      <p className="mt-1.5 text-sm leading-relaxed text-neutral-600">{step.body}</p>
+      <p id={`pd-walk-body-${step.id}`} className="mt-1.5 text-sm leading-relaxed text-neutral-600">
+        {step.body}
+      </p>
 
       {step.mode === 'action' && (
         <p
@@ -223,47 +232,54 @@ export function WalkthroughOverlay({
           )}
         </p>
       )}
-      {/* Live region: announce completion for screen-reader users. */}
+      {/* Live regions: action-step announcement (before focus moves) and
+          completion note for screen-reader users. */}
+      <span className="pd-visually-hidden" aria-live="polite">
+        {announcement}
+      </span>
       <span className="pd-visually-hidden" role="status">
         {step.mode === 'action' && actionDone ? (step.doneNote ?? 'Step complete.') : ''}
       </span>
 
-      {isLast && (onRestartDemo || onExitDemo) && (
-        <div className="mt-3 flex gap-2">
+      {isLast ? (
+        <div className="mt-4 flex items-center justify-end gap-2">
           {onRestartDemo && (
-            <Button variant="outline" size="sm" className="flex-1" onClick={onRestartDemo}>
+            <Button variant="outline" size="sm" onClick={onRestartDemo}>
               Restart demo
-            </Button>
-          )}
-          {onExitDemo && (
-            <Button variant="outline" size="sm" className="flex-1" onClick={onExitDemo}>
-              {exitDemoLabel ?? 'Close'}
-            </Button>
-          )}
-        </div>
-      )}
-
-      <div className="mt-4 flex items-center justify-between gap-2">
-        <Button variant="ghost" size="sm" onClick={onExit} aria-label="Skip the walkthrough">
-          Skip tour
-        </Button>
-        <div className="flex items-center gap-2">
-          {index > 0 && (
-            <Button variant="outline" size="sm" onClick={onBack} aria-label="Previous step">
-              Back
             </Button>
           )}
           <Button
             ref={primaryRef}
             size="sm"
             onClick={onNext}
-            disabled={step.mode === 'action' && !actionDone}
-            aria-label={isLast ? 'Finish the walkthrough' : 'Next step'}
+            aria-label="Finish the walkthrough and explore the editor"
           >
-            {isLast ? 'Finish' : 'Next'}
+            Explore the editor
           </Button>
         </div>
-      </div>
+      ) : (
+        <div className="mt-4 flex items-center justify-between gap-2">
+          <Button variant="ghost" size="sm" onClick={onExit} aria-label="Skip the walkthrough">
+            Skip tour
+          </Button>
+          <div className="flex items-center gap-2">
+            {index > 0 && (
+              <Button variant="outline" size="sm" onClick={onBack} aria-label="Previous step">
+                Back
+              </Button>
+            )}
+            <Button
+              ref={primaryRef}
+              size="sm"
+              onClick={onNext}
+              disabled={step.mode === 'action' && !actionDone}
+              aria-label="Next step"
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 

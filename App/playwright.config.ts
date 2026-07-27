@@ -15,9 +15,9 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
   },
   webServer: {
-    command: 'npm run build:portfolio-demo && npm run preview:portfolio-demo',
+    command: 'npm run build:portfolio-demo && node scripts/serve-host.mjs --port 4174',
     port: 4174,
-    reuseExistingServer: true,
-    timeout: 120_000,
+    reuseExistingServer: !process.env.CI,
+    timeout: 180_000,
   },
 })

@@ -6,12 +6,9 @@ import { getSceneStatus } from '@/types'
 import type { Scene, SceneStatus } from '@/types'
 import { estimateSpeechSecs, type SceneCollision } from '@/lib/collisions'
 import { fitToGap } from '../lib/fitToGap'
-import {
-  playBakedLine,
-  speakWithBrowserVoice,
-  speechSynthesisAvailable,
-  type PlaybackHandle,
-} from '../lib/narration'
+import { playBakedLine, speakWithBrowserVoice, type PlaybackHandle } from '../lib/narration'
+import { resolveLocalVoice, type LocalVoiceState } from '../lib/localVoice'
+import { claimAudio, clearAudioClaim } from '../lib/audioBus'
 import { bakedLineUrl, BAKED_ONYX_SCENES } from '../lib/fixtures'
 import { DemoPanelTabs, type DemoTab } from './DemoPanelTabs'
 
@@ -27,11 +24,12 @@ const STATUS_LABEL: Record<SceneStatus, string> = {
   conflict: 'Conflict',
   inactive: 'Off',
 }
+// AA text tokens on the tinted chip backgrounds.
 const STATUS_STYLE: Record<SceneStatus, string> = {
-  ok: 'bg-success-50 text-success-400',
-  empty: 'bg-warning-50 text-warning-400',
-  conflict: 'bg-danger-50 text-danger-400',
-  inactive: 'bg-neutral-150 text-neutral-400',
+  ok: 'bg-success-50 text-success-800',
+  empty: 'bg-warning-50 text-warning-800',
+  conflict: 'bg-danger-50 text-danger-800',
+  inactive: 'bg-neutral-150 text-neutral-700',
 }
 
 const SPEEDS = [0.75, 1.0, 1.25, 1.5]
@@ -47,24 +45,19 @@ interface DemoScriptPanelProps {
   speed: number
   onSpeedChange: (speed: number) => void
   sceneEdited: boolean
-  /** Whether the local trim is offered (computed by the editor: genuine
-   *  overrun with usable silence, and no head-on dialogue collision that a
-   *  trim provably cannot clear). */
+  /** Editor-computed: genuine overrun with usable silence AND (if colliding)
+   *  a trial trim at the current speed clears the collision. */
   fittable: boolean
   onFitText: (sceneId: number, text: string) => void
-  onPlayedOriginal: () => void
-  onPlayedBrowserVoice: () => void
+  /** Fired only when playback has ACTUALLY started (media 'playing' /
+   *  speech 'onstart') — the LISTEN step's evidence. */
+  onNarrationStarted: () => void
 }
 
 /**
- * The demo's script panel. Every control does exactly what its label says:
- *  - "Fit to gap (local)" is a deterministic in-browser trim (never called AI);
- *  - "Original line · Onyx" plays the committed pre-generated narration of the
- *    ORIGINAL draft (stated inline, since it never reflects edits);
- *  - "Read my text" uses the browser's own speech synthesis on the current
- *    textarea content (feature-detected);
- *  - playback speed genuinely changes playback (playbackRate / utterance.rate)
- *    and the timing estimates.
+ * The demo's script panel. Every control does exactly what its label says;
+ * playback participates in the single-audio-owner bus, and browser speech
+ * uses only an explicitly selected on-device (localService) voice.
  */
 export function DemoScriptPanel({
   scene,
@@ -79,27 +72,32 @@ export function DemoScriptPanel({
   sceneEdited,
   fittable,
   onFitText,
-  onPlayedOriginal,
-  onPlayedBrowserVoice,
+  onNarrationStarted,
 }: DemoScriptPanelProps) {
   const [playing, setPlaying] = useState<'baked' | 'speech' | null>(null)
   const [audioNote, setAudioNote] = useState<string | null>(null)
   const [fitNote, setFitNote] = useState<string | null>(null)
+  const [voiceState, setVoiceState] = useState<LocalVoiceState>({ status: 'pending', voice: null })
   const handleRef = useRef<PlaybackHandle | null>(null)
-  const speechOk = speechSynthesisAvailable()
+
+  useEffect(() => resolveLocalVoice(setVoiceState), [])
 
   function stopPlayback() {
     handleRef.current?.stop()
     handleRef.current = null
+    clearAudioClaim('baked-line')
+    clearAudioClaim('speech')
     setPlaying(null)
   }
 
-  // Stop any playback when the scene changes or the panel unmounts.
+  // Scene change stops this panel's playback and clears transient notes.
   const sceneKey = scene?.id ?? -1
   useEffect(() => {
     return () => {
       handleRef.current?.stop()
       handleRef.current = null
+      clearAudioClaim('baked-line')
+      clearAudioClaim('speech')
     }
   }, [sceneKey])
   useEffect(() => {
@@ -116,7 +114,7 @@ export function DemoScriptPanel({
       >
         <DemoPanelTabs active={activeTab} onChange={onTabChange} />
         <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-neutral-400">Select a scene to edit</p>
+          <p className="text-sm text-neutral-500">Select a scene to edit</p>
         </div>
       </aside>
     )
@@ -128,11 +126,12 @@ export function DemoScriptPanel({
 
   function handleFit() {
     if (!scene || !fittable) return
-    const r = fitToGap(scene.text, availableGapSecs)
+    const r = fitToGap(scene.text, availableGapSecs, speed)
     onFitText(scene.id, r.text)
     setFitNote(
       `Kept the first ${r.keptWords} of ${r.totalWords} words — ≈${r.estimatedSecs.toFixed(1)}s ` +
-        `for the ${r.targetSecs.toFixed(1)}s of clear silence. Local deterministic trim, no AI.`,
+        `at ${speed.toFixed(2).replace(/\.?0+$/, '')}× for the ${r.targetSecs.toFixed(1)}s of clear ` +
+        'silence. Local deterministic trim, no AI.',
     )
     stopPlayback()
   }
@@ -145,38 +144,54 @@ export function DemoScriptPanel({
     }
     stopPlayback()
     setAudioNote(null)
-    handleRef.current = playBakedLine(
-      bakedLineUrl(scene.sceneNumber),
-      speed,
-      () => setPlaying(null),
-      (msg) => {
+    const handle = playBakedLine(bakedLineUrl(scene.sceneNumber), speed, {
+      onStarted: onNarrationStarted,
+      onEnded: () => {
+        clearAudioClaim('baked-line')
+        setPlaying(null)
+      },
+      onError: (msg) => {
+        clearAudioClaim('baked-line')
         setPlaying(null)
         setAudioNote(msg)
       },
-    )
+    })
+    handleRef.current = handle
+    claimAudio('baked-line', () => {
+      handle.stop()
+      handleRef.current = null
+      setPlaying((current) => (current === 'baked' ? null : current))
+    })
     setPlaying('baked')
-    onPlayedOriginal()
   }
 
   function handleSpeakCurrent() {
-    if (!scene) return
+    if (!scene || voiceState.status !== 'available' || !voiceState.voice) return
     if (playing === 'speech') {
       stopPlayback()
       return
     }
     stopPlayback()
     setAudioNote(null)
-    handleRef.current = speakWithBrowserVoice(
-      scene.text,
-      speed,
-      () => setPlaying(null),
-      (msg) => {
+    const handle = speakWithBrowserVoice(scene.text, speed, voiceState.voice, {
+      onStarted: onNarrationStarted,
+      onEnded: () => {
+        clearAudioClaim('speech')
+        setPlaying(null)
+      },
+      onError: (msg) => {
+        clearAudioClaim('speech')
         setPlaying(null)
         setAudioNote(msg)
       },
-    )
+    })
+    handleRef.current = handle
+    claimAudio('speech', () => {
+      handle.stop()
+      handleRef.current = null
+      setPlaying((current) => (current === 'speech' ? null : current))
+    })
     setPlaying('speech')
-    onPlayedBrowserVoice()
   }
 
   return (
@@ -209,14 +224,16 @@ export function DemoScriptPanel({
               data-tour="fit"
               onClick={handleFit}
               disabled={!fittable || !scene.active}
-              className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-brand-500 transition-colors hover:bg-brand-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400 disabled:opacity-40 disabled:hover:bg-transparent"
+              className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-brand-800 transition-colors hover:bg-brand-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400 disabled:opacity-40 disabled:hover:bg-transparent"
               title={
                 fittable
-                  ? `Trim the line to the ${availableGapSecs.toFixed(1)}s of clear silence — a local, deterministic cut (no AI)`
+                  ? `Trim the line to the ${availableGapSecs.toFixed(1)}s of clear silence at ${speed
+                      .toFixed(2)
+                      .replace(/\.?0+$/, '')}× — a local, deterministic cut (no AI)`
                   : !scene.active
                     ? 'Switch the line on to edit it'
                     : collision?.collides
-                      ? 'Trimming cannot clear this overlap — the dialogue starts almost the moment the line begins'
+                      ? 'Trimming cannot clear this overlap — the film is speaking from the line’s first beat'
                       : 'Offered when the line runs longer than the clear silence available to this scene'
               }
             >
@@ -236,7 +253,6 @@ export function DemoScriptPanel({
           />
           {fitNote && <p className="text-xs text-neutral-500">{fitNote}</p>}
 
-          {/* The honest time budget — always visible, updates as you type. */}
           <p className="text-xs leading-relaxed text-neutral-500" aria-live="off">
             ≈{estSecs.toFixed(1)}s spoken at {speed.toFixed(2).replace(/\.?0+$/, '')}× ·{' '}
             {availableGapSecs.toFixed(1)}s clear silence available · scene window{' '}
@@ -244,8 +260,11 @@ export function DemoScriptPanel({
           </p>
           {collision?.collides && (
             <p className="text-xs leading-relaxed text-danger-800">
-              Talks over dialogue for ≈{collision.overlapSecs.toFixed(1)}s — the dialogue starts
-              almost the moment the line begins, so trimming alone cannot clear this.
+              {fittable
+                ? `Talks over dialogue for ≈${collision.overlapSecs.toFixed(1)}s — the line spills past
+                   its clear silence into the film's later lines. Trimming fixes this.`
+                : `Talks over dialogue for ≈${collision.overlapSecs.toFixed(1)}s — the film is speaking
+                   from the line's first beat, so trimming alone cannot clear this.`}
             </p>
           )}
         </div>
@@ -270,22 +289,27 @@ export function DemoScriptPanel({
                 )}
               </button>
             )}
-            {speechOk ? (
+            {voiceState.status === 'available' ? (
               <button
                 onClick={handleSpeakCurrent}
                 disabled={!scene.active || !scene.text.trim()}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-left text-xs font-medium text-neutral-700 transition-colors hover:bg-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400 disabled:opacity-40"
               >
                 {playing === 'speech' ? <Square size={12} /> : <Volume2 size={12} />}
-                {playing === 'speech' ? 'Stop' : 'Read my text · browser voice'}
+                {playing === 'speech' ? 'Stop' : 'Read my text · on-device voice'}
                 {playing !== 'speech' && (
-                  <span className="font-normal text-neutral-500">— your current words</span>
+                  <span className="font-normal text-neutral-500">— your current words, locally</span>
                 )}
               </button>
+            ) : voiceState.status === 'unavailable' ? (
+              <p className="text-xs leading-relaxed text-neutral-500">
+                Your browser offers no on-device voice, so the current text can't be read aloud
+                here — this demo never sends text to a speech service. In the full app,
+                narration re-renders per edit.
+              </p>
             ) : (
-              <p className="text-xs text-neutral-500">
-                Your browser doesn't offer speech synthesis, so the current text can't be read
-                aloud here. In the full app, narration is re-generated per edit.
+              <p className="text-xs text-neutral-500" role="status">
+                Checking for an on-device voice…
               </p>
             )}
             {audioNote && <p className="text-xs text-danger-800">{audioNote}</p>}
@@ -310,8 +334,8 @@ export function DemoScriptPanel({
             ))}
           </select>
           <p className="text-xs text-neutral-500">
-            Applies to both listen options and to the timing estimate. Narrator voice here is
-            Onyx — the one narrator bundled with this demo.
+            Applies to both listen options, the timing estimate and the trim budget. Narrator
+            voice here is Onyx — the one narrator bundled with this demo.
           </p>
         </div>
       </div>

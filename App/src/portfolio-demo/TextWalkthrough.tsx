@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { postExitMessage } from './lib/embed'
 import {
   loadDemoData,
   loadTranscript,
@@ -33,6 +34,7 @@ interface TextWalkthroughProps {
  * narrow-viewport fallback and as the text alternative linked from the intro.
  */
 export default function TextWalkthrough({ narrow, embed, eligibleWidth }: TextWalkthroughProps) {
+  const navigate = useNavigate()
   const [data, setData] = useState<DemoData | null>(null)
   const [transcript, setTranscript] = useState<TranscriptUtterance[]>([])
   const [loadError, setLoadError] = useState(false)
@@ -61,6 +63,26 @@ export default function TextWalkthrough({ narrow, embed, eligibleWidth }: TextWa
         <h1 id="pd-text-title" className="pd-title" style={{ fontSize: '1.45rem' }}>
           {narrow ? 'The interactive editor needs a wider display' : 'The walkthrough, as text'}
         </h1>
+        {narrow && (
+          <p>
+            {embed ? (
+              <button
+                type="button"
+                className="pd-link"
+                onClick={() => {
+                  postExitMessage()
+                  navigate('/')
+                }}
+              >
+                Close demo
+              </button>
+            ) : (
+              <Link className="pd-link" to="/">
+                Back to the intro
+              </Link>
+            )}
+          </p>
+        )}
         {narrow && (
           <p className="pd-note">
             InstaScribe's editor is a three-panel desktop workspace; below {eligibleWidth}px
@@ -119,19 +141,19 @@ export default function TextWalkthrough({ narrow, embed, eligibleWidth }: TextWa
         <h2>2 · Identify — a real conflict</h2>
         <p>
           Scene 2's draft is 45 words — an estimated 18 seconds spoken — inside a 13-second
-          scene, and the film's dialogue starts just 0.15 seconds after the line begins.
-          Narration would talk over dialogue for about 3 seconds. That collision is real,
-          computed from the film's dialogue map.
+          scene. The film is already speaking when the line begins (“Oh — hey, it's almost
+          done” starts a blink earlier), and the overlap totals about 4.7 seconds. That
+          collision is real, computed from the film's committed transcript.
         </p>
 
         <h2>3 · Refine — two honest fixes</h2>
         <p>
-          Scene 2 can't be rescued by shortening (the dialogue starts almost the moment the
-          line begins), so the
-          editorial fix is to switch that line off and let the dialogue carry the moment.
-          Scene 5's draft simply runs long — its moment offers 8 seconds of clear silence, so
-          a local, deterministic trim ("Fit to gap") cuts it to size. No AI is involved in
-          either fix.
+          Scene 2 can't be rescued by shortening (the film is speaking from the line's first
+          beat), so the editorial fix is to switch that line off and let the dialogue carry
+          the moment. Scene 5's draft runs about 17.6 estimated seconds — past its 8 seconds
+          of clear silence and into the film's later lines (“Oh”, “Skills”) — so a local,
+          deterministic trim ("Fit to gap") clears both the overrun and that collision. No AI
+          is involved in either fix.
         </p>
 
         <h2>4 · Listen — honestly labeled</h2>

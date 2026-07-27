@@ -12,7 +12,7 @@
     "demo": "vite build --mode demo && vite preview --port 4173",
     "dev:portfolio-demo": "vite --config vite.portfolio-demo.config.ts --port 5175",
     "build:portfolio-demo": "tsc -b && vite build --config vite.portfolio-demo.config.ts",
-    "preview:portfolio-demo": "vite preview --config vite.portfolio-demo.config.ts",
+    "preview:portfolio-demo": "node scripts/serve-host.mjs --port 4174",
     "test:portfolio-demo": "playwright test",
     "verify:portfolio-demo": "node scripts/verify-portfolio-demo.mjs"
   },
@@ -34,6 +34,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
     "@eslint/js": "^9.39.4",
     "@playwright/test": "^1.62.0",
     "@types/node": "^24.12.0",

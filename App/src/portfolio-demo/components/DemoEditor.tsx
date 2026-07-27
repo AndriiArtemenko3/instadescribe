@@ -13,6 +13,9 @@ import {
 } from '@/lib/collisions'
 import { renderCaptionTemplate } from '../lib/captionTemplate'
 import { canFitToGap, fitToGap } from '../lib/fitToGap'
+import { sentenceCaseStart } from '../lib/text'
+import { stopAllAudio } from '../lib/audioBus'
+import { postExitMessage } from '../lib/embed'
 import { WALKTHROUGH_STEPS, SCENE_TWO_ID, SCENE_FIVE_ID } from '../lib/walkthrough'
 import { CLIP_DURATION_SECS, VIDEO_SRC, type DemoData } from '../lib/fixtures'
 import { WalkthroughOverlay } from './WalkthroughOverlay'
@@ -52,7 +55,7 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
   const [walkDone, setWalkDone] = useState(false)
   const [playedNarration, setPlayedNarration] = useState(false)
   const [listenOpen, setListenOpen] = useState(false)
-  const [listenOpened, setListenOpened] = useState(false)
+  const [describedPlayed, setDescribedPlayed] = useState(false)
   const [aboutOpen, setAboutOpen] = useState(false)
 
   const selectedScene = scenes.find((s) => s.id === selectedSceneId) ?? scenes[0] ?? null
@@ -82,7 +85,7 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
       if (!coll?.collides) {
         selectedFittable = true
       } else {
-        const trimmed = fitToGap(selectedScene.text, availableGapSecs)
+        const trimmed = fitToGap(selectedScene.text, availableGapSecs, speed)
         const after = getSceneCollision(
           { ...selectedScene, text: trimmed.text, voiceSpeed: speed },
           data.audioEvents,
@@ -98,11 +101,12 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
 
   const sceneTwo = scenes.find((s) => s.id === SCENE_TWO_ID)
   const sceneFive = scenes.find((s) => s.id === SCENE_FIVE_ID)
-  // The fit step completes only when scene 5 GENUINELY fits its silence — via
-  // the trim button or a sufficient hand edit.
+  // The fit step completes only when scene 5 GENUINELY fits its silence AND
+  // no longer touches the later dialogue — via the trim button or a hand edit.
   const sceneFiveFits =
     !!sceneFive &&
-    estimateSpeechSecs(sceneFive.text, speed) <= sceneGapSecs(sceneFive, data.adGaps)
+    estimateSpeechSecs(sceneFive.text, speed) <= sceneGapSecs(sceneFive, data.adGaps) &&
+    !(collisionsBySceneId[SCENE_FIVE_ID]?.collides ?? false)
   const actionDone = !step
     ? false
     : step.id === 'refine-off'
@@ -112,8 +116,16 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
         : step.id === 'listen-line'
           ? playedNarration
           : step.id === 'listen-film'
-            ? listenOpened
+            ? describedPlayed
             : false
+
+  // Any modal surface (walkthrough explanation step, listen/about dialog)
+  // silences every source; so do restart, exit, completion and unmount.
+  const modalSurface = step?.mode === 'modal' || listenOpen || aboutOpen
+  useEffect(() => {
+    if (modalSurface) stopAllAudio()
+  }, [modalSurface])
+  useEffect(() => () => stopAllAudio(), [])
 
   // Step side effects: point the editor at the scene each step talks about.
   useEffect(() => {
@@ -130,6 +142,7 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
   }, [step])
 
   function closeWalkthrough() {
+    stopAllAudio()
     setWalkIndex(null)
     setWalkDone(true)
     // Deterministic, useful focus target after the dialog goes away.
@@ -141,6 +154,10 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
     const offCount = scenes.filter((s) => !s.active).length
     const trimmed = fitSceneIds.size
     const edited = editedSceneIds.size
+    const heard =
+      playedNarration && describedPlayed
+        ? ' You heard a narration line and the described film for yourself.'
+        : ''
     return WALKTHROUGH_STEPS.map((s) =>
       s.id === 'complete'
         ? {
@@ -149,12 +166,14 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
               `In this session you switched ${offCount} ${offCount === 1 ? 'line' : 'lines'} off, ` +
               `trimmed ${trimmed} to fit` +
               (edited > 0 ? `, and hand-edited ${edited}` : '') +
-              '. ' +
+              '.' +
+              heard +
+              ' ' +
               s.body,
           }
         : s,
     )
-  }, [scenes, fitSceneIds, editedSceneIds])
+  }, [scenes, fitSceneIds, editedSceneIds, playedNarration, describedPlayed])
 
   // ── Editor actions (each does exactly what its control label says) ────────
   function handleTextChange(sceneId: number, text: string) {
@@ -185,7 +204,7 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
       prev.map((s) =>
         editedSceneIds.has(s.id) || fitSceneIds.has(s.id) || !s.template
           ? s
-          : { ...s, text: renderCaptionTemplate(s.template, byId) },
+          : { ...s, text: sentenceCaseStart(renderCaptionTemplate(s.template, byId)) },
       ),
     )
   }
@@ -194,13 +213,8 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
   // (documented in docs/portfolio-demo/EMBED_CONTRACT.md; harmless when
   // unhandled) and return the stage to the intro invitation state.
   function exitDemo() {
-    if (embed) {
-      try {
-        window.parent?.postMessage({ type: 'instascribe-live-onboarding:exit' }, '*')
-      } catch {
-        /* messaging is best-effort */
-      }
-    }
+    stopAllAudio()
+    if (embed) postExitMessage()
     navigate('/')
   }
 
@@ -214,7 +228,7 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
   const overlayVisible = walkIndex !== null && !listenOpen && !aboutOpen
 
   return (
-    <div className="pd-editor-enter flex h-screen flex-col overflow-hidden bg-neutral-50">
+    <main className="pd-editor-enter flex h-screen flex-col overflow-hidden bg-neutral-50">
       <h1 className="pd-visually-hidden">
         InstaScribe live onboarding — interactive audio-description editor walkthrough
       </h1>
@@ -223,7 +237,7 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
         <header className="flex h-topnav shrink-0 items-center gap-3 border-b border-neutral-200 bg-neutral-0 px-4">
           <Logo size={18} className="text-brand-400" />
           <span className="text-sm font-medium text-neutral-900">InstaScribe</span>
-          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-neutral-500">
+          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-neutral-600">
             Live onboarding · preloaded demo
           </span>
           <div className="flex-1" />
@@ -247,7 +261,10 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
             About & licensing
           </button>
           <button
-            onClick={onRestart}
+            onClick={() => {
+              stopAllAudio()
+              onRestart()
+            }}
             className="flex items-center gap-1.5 text-xs text-neutral-500 transition-colors hover:text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
             title="Reset everything to a clean start"
           >
@@ -272,10 +289,7 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
             </Link>
           )}
           <span data-tour="preview">
-            <Button size="sm" className="gap-2" onClick={() => {
-              setListenOpen(true)
-              setListenOpened(true)
-            }}>
+            <Button size="sm" className="gap-2" onClick={() => setListenOpen(true)}>
               <Headphones size={14} />
               Play described example
             </Button>
@@ -326,8 +340,7 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
                 }
                 fittable={selectedFittable}
                 onFitText={handleFitText}
-                onPlayedOriginal={() => setPlayedNarration(true)}
-                onPlayedBrowserVoice={() => setPlayedNarration(true)}
+                onNarrationStarted={() => setPlayedNarration(true)}
               />
             ) : rightTab === 'characters' ? (
               <DemoCharactersPanel
@@ -365,19 +378,21 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
           }
           onBack={() => setWalkIndex(Math.max(0, walkIndex - 1))}
           onExit={closeWalkthrough}
-          onRestartDemo={onRestart}
-          exitDemoLabel={embed ? 'Close demo' : 'Back to intro'}
-          onExitDemo={exitDemo}
+          onRestartDemo={() => {
+            stopAllAudio()
+            onRestart()
+          }}
         />
       )}
 
       {listenOpen && (
         <ListenDialog
           onClose={() => setListenOpen(false)}
+          onPlaybackStarted={() => setDescribedPlayed(true)}
           sceneTwoRemoved={sceneTwo ? !sceneTwo.active : false}
         />
       )}
       {aboutOpen && <AboutDialog embed={embed} onClose={() => setAboutOpen(false)} />}
-    </div>
+    </main>
   )
 }

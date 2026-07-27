@@ -2,6 +2,7 @@ import { useRef, useEffect } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type { AdGap, AudioEvent, Scene } from '@/types'
 import type { SceneCollision } from '@/lib/collisions'
+import { claimAudio, clearAudioClaim } from '../lib/audioBus'
 import { CAPTIONS_SRC, POSTER_SRC } from '../lib/fixtures'
 
 // Fork of the app's VideoPanel for the portfolio demo, with three additions:
@@ -90,6 +91,8 @@ export function DemoVideoPanel({
           preload="metadata"
           poster={POSTER_SRC}
           onTimeUpdate={(e) => onTimeUpdate(e.currentTarget.currentTime)}
+          onPlay={() => claimAudio('source-video', () => videoRef.current?.pause())}
+          onPause={() => clearAudioClaim('source-video')}
           aria-label="Sintel excerpt — original clip"
         >
           <source src={videoSrc} type="video/mp4" />
@@ -102,10 +105,10 @@ export function DemoVideoPanel({
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
         <div className="flex-1" />
-        <span className="flex items-center gap-1 text-xs text-neutral-400">
+        <span className="flex items-center gap-1 text-xs text-neutral-500">
           {adGaps.length} recommended gaps
           {conflictCount > 0 && (
-            <span className="ml-1 flex items-center gap-1 font-medium text-danger-400">
+            <span className="ml-1 flex items-center gap-1 font-medium text-danger-800">
               <AlertTriangle size={13} strokeWidth={2} />
               {conflictCount} {conflictCount === 1 ? 'conflict' : 'conflicts'}
             </span>
@@ -186,16 +189,16 @@ export function DemoVideoPanel({
         </div>
 
         <div className="mt-1 flex items-center gap-4">
-          <span className="flex items-center gap-1 text-xs text-neutral-400">
+          <span className="flex items-center gap-1 text-xs text-neutral-500">
             <span className="inline-block h-2 w-3 rounded-sm bg-info-400 opacity-60" />
             Dialogue
           </span>
-          <span className="flex items-center gap-1 text-xs text-neutral-400">
+          <span className="flex items-center gap-1 text-xs text-neutral-500">
             <span className="inline-block h-2 w-3 rounded-sm bg-brand-400 opacity-70" />
             Recommended silence
           </span>
           {conflictCount > 0 && (
-            <span className="flex items-center gap-1 text-xs text-neutral-400">
+            <span className="flex items-center gap-1 text-xs text-neutral-500">
               <span className="inline-block h-2 w-3 rounded-sm bg-danger-400 opacity-50" />
               Talks over dialogue
             </span>

@@ -62,6 +62,7 @@ function portfolioDemoPlugin(): Plugin {
         'demo',
         'icons.svg',
         'data/sintel-blender-cc/system_info.json',
+        'data/sintel-blender-cc/audio_events.json',
         'data/sintel-blender-cc/poster.avif',
       ]) {
         fs.rmSync(path.join(OUT_DIR, unused), { recursive: true, force: true })

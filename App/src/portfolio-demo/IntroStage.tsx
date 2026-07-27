@@ -28,7 +28,7 @@ export function IntroStage() {
             <li>runs entirely in your browser</li>
           </ul>
           <ul className="pd-facts">
-            <li>no upload, no account, no AI calls</li>
+            <li>no upload, no account, no live model or API calls</li>
             <li>final example pre-rendered</li>
           </ul>
         </div>

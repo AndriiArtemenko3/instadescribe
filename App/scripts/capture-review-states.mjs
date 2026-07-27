@@ -63,10 +63,10 @@ await at(1232, 693, async () => {
   await shot(page, 'editor-1232x693-step1-orient')
   // Walk to the IDENTIFY step (4 clicks) and the REFINE action step.
   for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Next step' }).click()
-  await page.getByText('One line fights the dialogue').waitFor()
+  await page.getByRole('heading', { name: 'One line fights the dialogue' }).waitFor()
   await shot(page, 'editor-1232x693-step4-identify')
   await page.getByRole('button', { name: 'Next step' }).click()
-  await page.getByText('Let the dialogue breathe').waitFor()
+  await page.getByRole('heading', { name: 'Let the dialogue breathe' }).waitFor()
   await shot(page, 'editor-1232x693-step5-action')
   await page.locator('[data-tour="toggle-line"]').click()
   await page.waitForTimeout(250)
@@ -102,7 +102,7 @@ await at(1024, 693, async () => {
   await shot(page, 'editor-1024x693-boundary')
 })
 
-// Completion step.
+// Completion step (requires REAL playback for the listen evidence).
 await at(1232, 693, async () => {
   await page.goto(`${BASE}/onboarding`)
   await page.getByText('The scene list').waitFor()
@@ -115,10 +115,43 @@ await at(1232, 693, async () => {
   await page.getByRole('button', { name: /Original line · Onyx/ }).click()
   await page.getByRole('button', { name: 'Next step' }).click()
   await page.locator('[data-tour="preview"] button').click()
+  const dialogVideo = page.getByRole('dialog').locator('video')
+  await dialogVideo.click()
+  await page.waitForTimeout(600)
+  await shot(page, 'editor-1232x693-listen-playing')
   await page.getByRole('button', { name: 'Done listening' }).click()
   await page.getByRole('button', { name: 'Next step' }).click()
-  await page.getByText('That’s the loop').waitFor()
+  await page.getByRole('heading', { name: 'That’s the loop' }).waitFor()
   await shot(page, 'editor-1232x693-complete')
+})
+
+// New correction-pass states: initial transcript-authority checks, the
+// speed-consistent trim at 0.75×, the genuine 404 page, and narrow exits.
+await at(1232, 693, async () => {
+  await page.goto(`${BASE}/onboarding`)
+  await page.getByText('The scene list').waitFor()
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Checks' }).click()
+  await page.getByText('7 talk over dialogue').waitFor()
+  await shot(page, 'editor-1232x693-checks-initial-authority')
+  await page
+    .locator('aside[aria-label="Timing checks panel"]')
+    .getByRole('button', { name: /Scene 5/ })
+    .click()
+  await page.getByLabel('Playback speed').selectOption('0.75')
+  await page.locator('[data-tour="fit"]').click()
+  await page.getByText(/Kept the first 15 of 44 words/).waitFor()
+  await shot(page, 'editor-1232x693-fit-at-0.75x')
+})
+await at(1232, 693, async () => {
+  await page.goto(`${BASE}/dashboard`)
+  await page.getByText("That page isn't part of this demo.").waitFor()
+  await shot(page, 'host-404-dashboard')
+})
+await at(390, 844, async () => {
+  await page.goto(`${BASE}/onboarding`)
+  await page.getByRole('link', { name: 'Back to the intro' }).waitFor()
+  await shot(page, 'fallback-390-standalone-exit')
 })
 
 // ── Fallback states ──────────────────────────────────────────────────────────
