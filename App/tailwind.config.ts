@@ -14,9 +14,21 @@ import type { Config } from 'tailwindcss'
 
 const config: Config = {
   darkMode: ['class'],
+  // Application sources only. src/portfolio-demo/** is deliberately NOT
+  // scanned here — it belongs to the separate portfolio-demo entry
+  // (tailwind.portfolio-demo.config.ts), so its class usage cannot alter the
+  // default application build's CSS output.
   content: [
     './index.html',
-    './src/**/*.{ts,tsx}',
+    './src/*.{ts,tsx}',
+    './src/assets/**/*.{ts,tsx}',
+    './src/components/**/*.{ts,tsx}',
+    './src/features/**/*.{ts,tsx}',
+    './src/hooks/**/*.{ts,tsx}',
+    './src/lib/**/*.{ts,tsx}',
+    './src/router/**/*.{ts,tsx}',
+    './src/store/**/*.{ts,tsx}',
+    './src/types/**/*.{ts,tsx}',
   ],
 
   theme: {

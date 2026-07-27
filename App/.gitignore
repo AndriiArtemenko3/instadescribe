@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# portfolio-demo build + browser-test artifacts
+dist-portfolio-demo
+test-results
+playwright-report

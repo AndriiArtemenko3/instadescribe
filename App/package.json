@@ -9,7 +9,12 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "demo": "vite build --mode demo && vite preview --port 4173"
+    "demo": "vite build --mode demo && vite preview --port 4173",
+    "dev:portfolio-demo": "vite --config vite.portfolio-demo.config.ts --port 5175",
+    "build:portfolio-demo": "tsc -b && vite build --config vite.portfolio-demo.config.ts",
+    "preview:portfolio-demo": "vite preview --config vite.portfolio-demo.config.ts",
+    "test:portfolio-demo": "playwright test",
+    "verify:portfolio-demo": "node scripts/verify-portfolio-demo.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
@@ -30,6 +35,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@playwright/test": "^1.62.0",
     "@types/node": "^24.12.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

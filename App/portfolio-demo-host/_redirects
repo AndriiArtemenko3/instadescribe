@@ -1,0 +1,4 @@
+# SPA fallback for exactly the demo's intended routes — nothing else falls
+# through, so unknown paths return the host's 404 (no open redirect, no
+# backend fall-through).
+/onboarding  /index.html  200

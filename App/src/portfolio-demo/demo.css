@@ -1,0 +1,238 @@
+/* Portfolio-demo styles (pd-*), scoped to the dedicated entry.
+ *
+ * The intro stage mirrors the case-study shell's visual system (read-only
+ * authority: andriiartemenko.com tokens.css): near-black media field #16181C,
+ * cool trace palette, mono/display hierarchy, hairline keylines, square and
+ * shadowless planes, indigo reserved for genuinely interactive states.
+ *
+ * Söhne is licensed to the portfolio origin and is NOT bundled here; the stack
+ * declares it first so a future same-origin deployment renders it natively,
+ * with Helvetica Neue/Arial approximating it elsewhere.
+ */
+:root {
+  --pd-media: #16181c;
+  --pd-raised: #1a1c20;
+  --pd-ink: #f2f4f7;
+  --pd-ink-body: #dfe2e6;
+  --pd-ink-secondary: #a9adb4;
+  --pd-ink-muted: #8a8f97;
+  --pd-accent: #6b74ff;
+  --pd-rule: #282b30;
+  --pd-border: #373b41;
+  --pd-font-display: 'Söhne', 'Helvetica Neue', Arial, sans-serif;
+  --pd-font-mono: ui-monospace, 'SFMono-Regular', Menlo, 'JetBrains Mono', monospace;
+}
+
+/* ── Intro stage ─────────────────────────────────────────────────────────── */
+.pd-intro {
+  min-height: 100svh;
+  background: var(--pd-media);
+  color: var(--pd-ink);
+  font-family: var(--pd-font-display);
+  display: flex;
+  align-items: center;
+  overflow-x: hidden;
+}
+
+.pd-intro-inner {
+  width: 100%;
+  max-width: 720px;
+  padding: clamp(24px, 5vw, 72px);
+  padding-top: clamp(24px, 4vh, 48px);
+  padding-bottom: clamp(24px, 4vh, 48px);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(12px, 2.2vh, 22px);
+}
+
+.pd-kicker {
+  margin: 0;
+  font-family: var(--pd-font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.14em;
+  color: var(--pd-ink-muted);
+}
+
+.pd-title {
+  margin: 0;
+  font-weight: 500;
+  font-size: clamp(1.55rem, 3.4vw, 2.6rem);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--pd-ink);
+}
+
+.pd-support {
+  margin: 0;
+  max-width: 56ch;
+  font-size: clamp(0.95rem, 1.35vw, 1.125rem);
+  line-height: 1.55;
+  color: var(--pd-ink-body);
+}
+
+.pd-facts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+  font-family: var(--pd-font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--pd-ink-secondary);
+}
+.pd-facts + .pd-facts { margin-top: 4px; }
+.pd-facts li { display: flex; align-items: baseline; }
+.pd-facts li + li::before {
+  content: '·';
+  margin: 0 10px;
+  color: var(--pd-ink-muted);
+}
+
+.pd-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-top: clamp(2px, 1vh, 10px);
+  flex-wrap: wrap;
+}
+
+.pd-start {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--pd-ink);
+  background: var(--pd-raised);
+  border: 1.75px solid var(--pd-ink-secondary);
+  padding: 12px 28px;
+  border-radius: 0;
+  transition: border-color 150ms cubic-bezier(0.2, 0, 0.2, 1);
+}
+.pd-start:hover { border-color: var(--pd-ink); }
+.pd-start:active { border-color: var(--pd-ink); }
+
+.pd-link {
+  color: var(--pd-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pd-fineprint {
+  margin: 0;
+  border-top: 1px solid var(--pd-rule);
+  padding-top: 14px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--pd-ink-muted);
+}
+.pd-fineprint a { color: var(--pd-ink-secondary); text-decoration: underline; text-underline-offset: 2px; }
+
+.pd-intro :focus-visible,
+.pd-fallback :focus-visible {
+  outline: 2px solid var(--pd-accent);
+  outline-offset: 2px;
+}
+
+/* Compact heights (e.g. the 693px embedded stage) — tighten rhythm. */
+@media (max-height: 760px) {
+  .pd-intro-inner { gap: 12px; }
+}
+
+@media (max-width: 768px) {
+  .pd-title { font-size: clamp(1.35rem, 6vw, 1.8rem); }
+  .pd-facts { flex-direction: column; gap: 4px; }
+  .pd-facts li + li::before { content: ''; margin: 0; }
+}
+
+@media (max-width: 390px) {
+  .pd-intro-inner { padding: 20px 16px; }
+  .pd-start { width: 100%; text-align: center; }
+}
+
+/* ── Narrow / mobile fallback view (onboarding below the eligible width) ── */
+.pd-fallback {
+  min-height: 100svh;
+  background: var(--pd-media);
+  color: var(--pd-ink-body);
+  font-family: var(--pd-font-display);
+  padding: clamp(20px, 5vw, 48px);
+  overflow-x: hidden;
+}
+.pd-fallback-inner {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.pd-fallback h2 {
+  margin: 18px 0 0;
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--pd-ink);
+}
+.pd-fallback p { margin: 0; font-size: 0.9375rem; line-height: 1.55; }
+.pd-fallback ol, .pd-fallback ul { margin: 0; padding-left: 20px; font-size: 0.9375rem; line-height: 1.55; }
+.pd-fallback li { margin: 6px 0; }
+.pd-fallback video { width: 100%; border: 1px solid var(--pd-border); background: #000; }
+
+.pd-note {
+  border: 1px solid var(--pd-border);
+  padding: 12px 14px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--pd-ink-secondary);
+}
+
+/* ── Walkthrough overlay ─────────────────────────────────────────────────── */
+.pd-tour-ring {
+  position: fixed;
+  pointer-events: none;
+  border: 2px solid #2e2edc; /* light-surface interactive indigo (website --accent) */
+  border-radius: 8px;
+  z-index: 70;
+}
+.pd-tour-ring--dim {
+  box-shadow: 0 0 0 9999px rgba(22, 24, 28, 0.62);
+}
+.pd-tour-card {
+  position: fixed;
+  z-index: 71;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  background: #fff;
+  color: #1a1a1a;
+  border: 1px solid #d4d4d4;
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pd-tour-ring, .pd-tour-card { transition: all 160ms cubic-bezier(0.2, 0, 0.2, 1); }
+  .pd-editor-enter { animation: pd-fade-in 180ms ease-out; }
+  @keyframes pd-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
+
+/* Utility: visually hidden but accessible. */
+.pd-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
