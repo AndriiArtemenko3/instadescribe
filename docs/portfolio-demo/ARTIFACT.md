@@ -28,8 +28,9 @@ Deliberately **not** shipped: the ZIP's other 27 narration clips (nova/alloy/shi
 compiled site, `HANDOFF.md`, and `tools/bake_tts.py` (never executed — it embeds another
 user's absolute path and can start billable TTS jobs). The portfolio build also prunes the
 shared-public files the demo never references — `demo/silence.mp3`, `icons.svg`,
-`poster.avif`, and `system_info.json` (internal pipeline metadata) — so no unused
-application asset ships.
+`poster.avif`, `system_info.json` (internal pipeline metadata) and `audio_events.json`
+(coarse pipeline audio map; the committed transcript is the demo's dialogue authority) —
+so no unused application asset ships.
 
 ## ffprobe (retained media)
 
@@ -47,6 +48,7 @@ application asset ships.
 - Intro payload before "Start now": HTML 0.81 kB + CSS 60.6 kB (11.9 kB gz) + JS 286.0 kB
   (91.2 kB gz) + 3 Geist woff2 (58.4 kB) — measured in-browser at **~161 KB transferred**;
   zero JSON or media requests (enforced by e2e).
-- Deferred: 4 fixture JSONs + source video (poster first) load after Start now; each Onyx
-  clip loads on its listen click; `export.mp4` loads only at the LISTEN step (enforced by
-  e2e).
+- Deferred: 4 fixture JSONs (`scenes`, `transcript` — the dialogue authority —
+  `ad_placement_gaps`, `entities`) + source video (poster first) load after Start now;
+  each Onyx clip loads on its listen click; `export.mp4` loads only at the LISTEN step
+  (enforced by e2e).

@@ -1,6 +1,6 @@
 # InstaScribe Live Onboarding v1 — implementation contract & work order
 
-**Status:** Delivered for human visual review (draft PR; not merged, not deployed)
+**Status:** Correction pass delivered for human visual review (draft PR #1; not merged, not deployed)
 **Branch:** `polish/instascribe-live-onboarding-v1`
 **Base SHA:** `88571e982c12148b002c4bf099964790ccbb99bb` (origin/main at start; matched the
 authoring contract's expected SHA exactly; working tree was clean)
@@ -302,5 +302,71 @@ frontend edit.
   strengthened and "the real InstaScribe editor" softened to "InstaScribe's review
   workflow"; scene-5 copy quotes the 44-word draft and attributes all durations to the
   estimate model.
+
+- **D15 (correction pass) — Dialogue authority.** The committed word-timestamped
+  `transcript.json` is now the single user-facing spoken-dialogue authority (7 utterances:
+  26.22–26.78 "Oh", 26.78–28.86 "Hey, it's almost done", 30.00–32.12 "Hey sit still",
+  47.56–49.06 "Good night's kiss", 70.32–71.72 "Oh", 73.48–74.88 "Skills", 108.02–109.42
+  "Oh"). The coarse `audio_events.json` (silence 32–120 s) is provenance only — no longer
+  fetched and pruned from the deploy. Corrected arithmetic (pinned by
+  `lib/dialogueAuthority.test.ts`): scene 2 begins 0.03 s AFTER the dialogue ("Oh" at
+  26.22 vs narration 26.25 — the earlier "0.15 s after" claim had the wrong source and the
+  wrong direction), overlap ≈ 4.73 s across three utterances, untrimmable at every offered
+  speed; scene 5 overruns its 8.0 s gap into "Oh"/"Skills" (≈ 2.8 s) and the trim clears
+  both the overrun and the collision at 0.75/1/1.25/1.5×; at 1× scenes 2,3,4,5,6,8,9
+  collide and 1,7 are clear. All copy, the timeline bands, the Checks panel and the
+  walkthrough tell this one story.
+- **D16 — Evidence-based LISTEN.** Baked audio completes on the media 'playing' event,
+  browser speech on `onstart`, and the described film only when its video actually enters
+  playback; the completion card claims "you heard…" only with that evidence. Playwright
+  starts real playback and asserts the state transition.
+- **D17 — Single audio owner.** `lib/audioBus.ts`: source video, baked line, speech and the
+  described example claim a single bus; opening any modal surface (walkthrough explanation
+  step, listen/about dialog), changing scene, restart, exit, tour completion and unmount
+  stop all sources. Unit lifecycle tests + browser regressions (no orphaned "Stop" state).
+- **D18 — Speed-consistent trim.** `fitToGap(text, target, speed)` floors
+  `target × 2.5 × speed` words (round() overshot at 0.75×: 13 words → 6.93 s > 6.88 s);
+  eligibility, budget, note, collision trial and step completion share the one model;
+  tested at all four speeds (browser + unit), fixing the 0.75× dead end.
+- **D19 — Local-only speech.** Speech uses only an explicitly selected
+  `SpeechSynthesisVoice` with `localService === true` (async `voiceschanged` handled,
+  bounded wait); with no local voice the control is withheld with honest copy. Public
+  wording is now "no live model or API calls". Unit-tested selection; the rule is asserted
+  separately from network observation since speech services don't surface as page requests.
+- **D20 — Accessibility.** All flagged sub-AA tokens replaced (status pills →
+  `*-800` on `*-50`; remaining `neutral-400` body text → `neutral-500/600`; the demo
+  darkens `--primary` to hsl(158 74% 26%) ≈ #117350 so white button labels reach ≈5.8:1 —
+  demo-scoped, shared tokens untouched); `<main>` landmark on the editor; action steps
+  announce title+rationale+instruction via a polite live region before focus moves (450 ms)
+  and the target carries the card body as `aria-describedby`; axe (wcag2a/aa + 2.1) scans
+  seven retained states and fails CI on any violation.
+- **D21 — Recovery & terminal UX.** "Try again" genuinely refetches (retry nonce — the old
+  effect never re-ran); narrow standalone fallback gained "Back to the intro", embedded
+  narrow gained "Close demo"; the completion card is a terminal model: primary "Explore the
+  editor" + secondary "Restart demo", no Skip/Back. Sentence-initial casing is corrected at
+  the DISPLAY layer only (`lib/text.ts`, applied on fixture load and after rename
+  re-render); the committed fixture is byte-unchanged.
+- **D22 — Embed message contract.** The exit event posts only to
+  `https://andriiartemenko.com` and `https://www.andriiartemenko.com` (plus the dev-server
+  origin in dev builds only) — never `'*'` — and carries nothing but its type; the parent
+  must verify `event.origin` AND `event.source` (documented with a snippet). Unit-tested.
+- **D23 — Hosting truth.** A real top-level `404.html` establishes the host 404 boundary
+  (its presence disables Pages' implicit SPA fallback); `scripts/serve-host.mjs` implements
+  the documented `_redirects`/`_headers`/404 semantics (with Range support) and now serves
+  ALL browser tests and previews; `e2e/host.spec.ts` asserts genuine statuses (app routes
+  404, `/onboarding` 200 via the single rewrite, pruned assets 404, dev-harness route
+  absent) and the exact security headers, including immutable/day cache tiers.
+  `Permissions-Policy` now denies autoplay entirely (the demo never autoplays).
+  *Limitation:* in-browser `frame-ancestors` blocking was attempted three ways; Chromium
+  does not expose blocked-subframe telemetry to Playwright deterministically, so the
+  header's exact value is asserted on every route and enforcement is the browser's
+  standard behavior. The real Cloudflare host remains the final authority and is
+  deliberately not deployed by this branch.
+- **D24 — CI.** A dedicated `portfolio-demo` job (npm ci → Playwright Chromium →
+  `build:portfolio-demo` → `verify:portfolio-demo` → full browser suite incl. host and axe
+  specs) runs on the fresh artifact; `reuseExistingServer` is disabled under CI. The
+  browser suite has GLOBAL network/console/pageerror observation (fails on any external
+  origin, `/api/`, page error or unexpected console error). The deploy manifest is now
+  genuinely verified against the committed copy (refresh requires `UPDATE_MANIFEST=1`).
 
 *(Further decisions/deviations appended as work proceeds.)*

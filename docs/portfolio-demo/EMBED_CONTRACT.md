@@ -15,7 +15,14 @@ production change. The portfolio repository is untouched.
 | `/review/figure-00` | Development-only harness (excluded from production builds). |
 
 SPA fallback: only `/onboarding` rewrites to `index.html` (`_redirects`). `/` is the real
-file. Unknown paths get the host's 404 — no open redirect, no backend fall-through.
+file. A top-level **`404.html`** ships in the package: its presence disables Cloudflare
+Pages' implicit everything-is-SPA fallback, so `/login`, `/register`, `/dashboard`,
+`/upload`, `/study`, `/tutorials` and any other unknown path return a **genuine 404
+status** with a branded not-found page — no open redirect, no backend fall-through.
+`scripts/serve-host.mjs` implements exactly these documented semantics locally (plus
+`_headers` application and Range support) and serves every browser test and preview;
+`e2e/host.spec.ts` asserts the statuses and headers. The deployed Cloudflare host remains
+the final authority — verify once more there when it is eventually deployed.
 
 ## The intended portfolio integration
 
@@ -50,11 +57,24 @@ file. Unknown paths get the host's 404 — no open redirect, no backend fall-thr
   visitor starts.
 - **Intro→editor transition:** inside the frame, `Start now` swaps intro → editor in the
   same region with no layout shift (both fill the frame; asserted by e2e).
-- **Close / return-to-case-study:** the demo's "Close demo" control (header + completion
-  card) sends `window.parent.postMessage({ type: 'instascribe-live-onboarding:exit' }, '*')`
-  and navigates the frame back to `/` (the invitation state). A parent that wants to swap
-  the iframe back out listens for that message; a parent that ignores it still ends up with
-  the stage showing the intro again. The message carries no data beyond its type.
+- **Close / return-to-case-study:** the demo's "Close demo" control (header; the
+  completion card offers Restart, and narrow embedded fallbacks offer Close) sends
+  `{ type: 'instascribe-live-onboarding:exit' }` via `postMessage` **only to the explicit
+  allowed parent origins** — `https://andriiartemenko.com` and
+  `https://www.andriiartemenko.com` (dev builds additionally target the dev-server's own
+  origin; production builds strip that branch). It is never posted to `'*'` and carries no
+  user data (unit-tested in `lib/embed.test.ts`). The frame then navigates itself back to
+  `/` (the invitation state), so a parent that ignores the message still shows a coherent
+  stage. The parent MUST verify both the origin and the source before acting:
+
+  ```js
+  window.addEventListener('message', (event) => {
+    if (event.origin !== 'https://instascribe-demo.andriiartemenko.com') return
+    if (event.source !== iframe.contentWindow) return
+    if (event.data?.type !== 'instascribe-live-onboarding:exit') return
+    // swap the iframe back to the static Figure 00 state
+  })
+  ```
 - **Text alternative:** the full text walkthrough is reachable in every mode — from the
   intro ("Read it as text instead") and from the editor's About & licensing dialog
   (`/onboarding?embed=1&view=text` inside the embed).
