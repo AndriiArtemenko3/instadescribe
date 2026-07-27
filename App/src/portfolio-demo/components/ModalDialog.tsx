@@ -19,11 +19,15 @@ interface ModalDialogProps {
  */
 export function ModalDialog({ titleId, title, onClose, children, maxWidth = 640 }: ModalDialogProps) {
   const cardRef = useRef<HTMLDivElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
   const restoreRef = useRef<Element | null>(null)
 
   useEffect(() => {
     restoreRef.current = document.activeElement
-    cardRef.current?.querySelector<HTMLElement>('[data-autofocus]')?.focus()
+    // A dialog may declare its primary control with data-autofocus (e.g. the
+    // described example's Play button); otherwise focus enters on Close.
+    const preferred = cardRef.current?.querySelector<HTMLElement>('[data-autofocus]')
+    ;(preferred ?? closeRef.current)?.focus()
     return () => {
       if (restoreRef.current instanceof HTMLElement) restoreRef.current.focus()
     }
@@ -78,7 +82,7 @@ export function ModalDialog({ titleId, title, onClose, children, maxWidth = 640 
             {title}
           </h2>
           <button
-            data-autofocus
+            ref={closeRef}
             onClick={onClose}
             className="rounded p-1 text-neutral-500 transition-colors hover:bg-neutral-150 hover:text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400"
             aria-label={`Close ${title}`}

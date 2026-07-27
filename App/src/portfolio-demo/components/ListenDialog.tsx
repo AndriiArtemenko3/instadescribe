@@ -1,4 +1,5 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
+import { Pause, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ModalDialog } from './ModalDialog'
 import { claimAudio, clearAudioClaim } from '../lib/audioBus'
@@ -20,6 +21,7 @@ interface ListenDialogProps {
  */
 export function ListenDialog({ onClose, onPlaybackStarted, sceneTwoRemoved }: ListenDialogProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
+  const [playing, setPlaying] = useState(false)
   return (
     <ModalDialog titleId="pd-listen-title" title="Pre-rendered described example" onClose={onClose}>
       <div className="space-y-3">
@@ -42,10 +44,15 @@ export function ListenDialog({ onClose, onPlaybackStarted, sceneTwoRemoved }: Li
           className="w-full rounded-lg bg-black"
           aria-label="Sintel excerpt with audio description narration mixed in (pre-rendered)"
           onPlaying={() => {
+            setPlaying(true)
             onPlaybackStarted()
             claimAudio('described-example', () => videoRef.current?.pause())
           }}
-          onPause={() => clearAudioClaim('described-example')}
+          onPause={() => {
+            setPlaying(false)
+            clearAudioClaim('described-example')
+          }}
+          onEnded={() => setPlaying(false)}
         >
           <source src={EXPORT_SRC} type="video/mp4" />
           <track
@@ -61,7 +68,24 @@ export function ListenDialog({ onClose, onPlaybackStarted, sceneTwoRemoved }: Li
           reproduce anyone's experience of blindness or low vision.) Captions for dialogue and
           narration are available via the video's caption control.
         </p>
-        <div className="flex justify-end">
+        <div className="flex items-center justify-between gap-2">
+          {/* Keyboard-first playback control: native <video> keyboard support
+              varies by platform, so the dialog provides an explicit button
+              (also the dialog's initial focus target). */}
+          <Button
+            data-autofocus
+            variant="outline"
+            className="gap-1.5"
+            onClick={() => {
+              const v = videoRef.current
+              if (!v) return
+              if (v.paused) void v.play()
+              else v.pause()
+            }}
+          >
+            {playing ? <Pause size={14} /> : <Play size={14} />}
+            {playing ? 'Pause the example' : 'Play the example'}
+          </Button>
           <Button onClick={onClose}>Done listening</Button>
         </div>
       </div>

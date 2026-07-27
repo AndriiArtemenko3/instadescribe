@@ -391,8 +391,9 @@ test.describe('keyboard-only completion', () => {
     await page.keyboard.press('Enter')
     const dialog = page.getByRole('dialog', { name: 'Pre-rendered described example' })
     await expect(dialog).toBeVisible()
-    await page.keyboard.press('Tab') // close button → video element
-    await page.keyboard.press('Space') // native video keyboard play
+    // The dialog's explicit Play control is its initial focus target.
+    await expect(page.getByRole('button', { name: 'Play the example' })).toBeFocused()
+    await page.keyboard.press('Enter')
     await expect
       .poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => !v.paused))
       .toBe(true)
