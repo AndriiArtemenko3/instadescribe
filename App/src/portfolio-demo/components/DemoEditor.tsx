@@ -6,11 +6,12 @@ import { Separator } from '@/components/ui/separator'
 import { Logo } from '@/components/ui/Logo'
 import type { Scene, Entity } from '@/types'
 import {
-  estimateSpeechSecs,
-  getSceneCollision,
-  sceneGapSecs,
-  type SceneCollision,
-} from '@/lib/collisions'
+  isRawClear,
+  rawDialogueOverlapSecs,
+  sceneTiming,
+  SECS_PER_WORD,
+  type SceneTiming,
+} from '../lib/timing'
 import { renderCaptionTemplate } from '../lib/captionTemplate'
 import { canFitToGap, fitToGap } from '../lib/fitToGap'
 import { sentenceCaseStart } from '../lib/text'
@@ -60,39 +61,29 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
 
   const selectedScene = scenes.find((s) => s.id === selectedSceneId) ?? scenes[0] ?? null
 
-  const collisionsBySceneId = useMemo(() => {
-    const map: Record<number, SceneCollision> = {}
+  // One authoritative timing model (lib/timing.ts): usable silence measured
+  // from each line's REAL start (scene.start + 0.25), overlap always raw.
+  const timingsBySceneId = useMemo(() => {
+    const map: Record<number, SceneTiming> = {}
     for (const s of scenes) {
-      map[s.id] = getSceneCollision({ ...s, voiceSpeed: speed }, data.audioEvents, data.adGaps)
+      map[s.id] = sceneTiming(s, data.audioEvents, data.adGaps, speed)
     }
     return map
   }, [scenes, speed, data.audioEvents, data.adGaps])
 
-  const availableGapSecs = selectedScene
-    ? sceneGapSecs(selectedScene, data.adGaps)
-    : 0
+  const selectedTiming = selectedScene ? (timingsBySceneId[selectedScene.id] ?? null) : null
 
-  // Offer the local trim only when it can genuinely deliver: the line overruns
-  // usable silence AND, if it also collides with dialogue, the trimmed version
-  // would actually clear that collision (scene 2's head-on overlap cannot be
-  // cleared by any trim, so the control stays disabled there — matching what
-  // the walkthrough says).
+  // Offer the local trim only when it can genuinely deliver: the line exceeds
+  // its usable silence AND the trial trim is RAW-clear of dialogue (zero
+  // overlap, epsilon only — never the display tolerance).
   let selectedFittable = false
-  if (selectedScene && selectedScene.active) {
-    const est = estimateSpeechSecs(selectedScene.text, speed)
-    if (canFitToGap(est, availableGapSecs)) {
-      const coll = collisionsBySceneId[selectedScene.id]
-      if (!coll?.collides) {
-        selectedFittable = true
-      } else {
-        const trimmed = fitToGap(selectedScene.text, availableGapSecs, speed)
-        const after = getSceneCollision(
-          { ...selectedScene, text: trimmed.text, voiceSpeed: speed },
-          data.audioEvents,
-          data.adGaps,
-        )
-        selectedFittable = !after.collides
-      }
+  if (selectedScene && selectedScene.active && selectedTiming) {
+    if (canFitToGap(selectedTiming.estSecs, selectedTiming.usableSecs)) {
+      const trial = fitToGap(selectedScene.text, selectedTiming.usableSecs, speed)
+      const trialEnd = selectedTiming.adStart + (trial.keptWords * SECS_PER_WORD) / speed
+      selectedFittable = isRawClear(
+        rawDialogueOverlapSecs(selectedTiming.adStart, trialEnd, data.audioEvents),
+      )
     }
   }
 
@@ -101,12 +92,14 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
 
   const sceneTwo = scenes.find((s) => s.id === SCENE_TWO_ID)
   const sceneFive = scenes.find((s) => s.id === SCENE_FIVE_ID)
-  // The fit step completes only when scene 5 GENUINELY fits its silence AND
-  // no longer touches the later dialogue — via the trim button or a hand edit.
+  // The fit step completes only when scene 5 GENUINELY fits its usable
+  // silence AND is raw-clear of dialogue — via the trim button or a hand edit.
+  const sceneFiveTiming = timingsBySceneId[SCENE_FIVE_ID]
   const sceneFiveFits =
     !!sceneFive &&
-    estimateSpeechSecs(sceneFive.text, speed) <= sceneGapSecs(sceneFive, data.adGaps) &&
-    !(collisionsBySceneId[SCENE_FIVE_ID]?.collides ?? false)
+    !!sceneFiveTiming &&
+    sceneFiveTiming.estSecs <= sceneFiveTiming.usableSecs + 1e-6 &&
+    !sceneFiveTiming.talksOverDialogue
   const actionDone = !step
     ? false
     : step.id === 'refine-off'
@@ -303,7 +296,7 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
               activeSceneId={selectedScene?.id ?? null}
               onSceneSelect={handleSceneSelect}
               onActiveToggle={handleToggleActive}
-              collisions={collisionsBySceneId}
+              timings={timingsBySceneId}
             />
           </div>
 
@@ -314,7 +307,7 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
               scenes={scenes}
               adGaps={data.adGaps}
               audioEvents={data.audioEvents}
-              collisions={collisionsBySceneId}
+              timings={timingsBySceneId}
               currentTime={currentTime}
               onSeek={setCurrentTime}
               onTimeUpdate={setCurrentTime}
@@ -325,8 +318,7 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
             {rightTab === 'script' ? (
               <DemoScriptPanel
                 scene={selectedScene}
-                availableGapSecs={availableGapSecs}
-                collision={selectedScene ? (collisionsBySceneId[selectedScene.id] ?? null) : null}
+                timing={selectedTiming}
                 activeTab={rightTab}
                 onTabChange={setRightTab}
                 onTextChange={handleTextChange}
@@ -354,8 +346,7 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
             ) : (
               <ChecksPanel
                 scenes={scenes}
-                collisions={collisionsBySceneId}
-                speed={speed}
+                timings={timingsBySceneId}
                 activeTab={rightTab}
                 onTabChange={setRightTab}
                 onSelectScene={(id) => {
@@ -382,6 +373,8 @@ export function DemoEditor({ data, embed, onRestart }: DemoEditorProps) {
             stopAllAudio()
             onRestart()
           }}
+          exitDemoLabel={embed ? 'Close demo' : 'Back to the intro'}
+          onExitDemo={exitDemo}
         />
       )}
 

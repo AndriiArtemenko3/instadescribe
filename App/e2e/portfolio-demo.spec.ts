@@ -77,7 +77,9 @@ test.describe('start and core loop', () => {
     await expect(page.getByText('The scene list')).toBeVisible()
 
     // Under the transcript authority, seven drafts genuinely collide at 1×.
-    await expect(page.locator('[data-tour="scenes"]').getByText('Conflict')).toHaveCount(7)
+    await expect(
+      page.locator('[data-tour="scenes"]').getByText('Conflict', { exact: true }),
+    ).toHaveCount(7)
     expect(requests.filter((u) => EXPORT_RE.test(u))).toHaveLength(0)
 
     await runWalkthroughToListen(page)
@@ -104,10 +106,11 @@ test.describe('start and core loop', () => {
     await expect(page.getByText(/you switched 1 line off, trimmed 1 to fit/)).toBeVisible()
     await expect(page.getByText('You heard a narration line and the described film')).toBeVisible()
     await expect(page.getByText(/other drafts that run long or brush later dialogue/)).toBeVisible()
-    // Terminal card: one primary + one restart, no Skip/Back.
+    // Terminal card: primary Explore + Restart + the contracted exit; no Skip/Back.
     await expect(page.getByRole('button', { name: 'Skip the walkthrough' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Previous step' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Restart demo' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Back to the intro' })).toBeVisible()
     await page.getByRole('button', { name: 'Finish the walkthrough and explore the editor' }).click()
     await expect(page.getByRole('button', { name: 'Replay walkthrough' })).toBeFocused()
 
@@ -184,9 +187,16 @@ test.describe('single audio owner', () => {
     const described = dialog.locator('video')
     await described.click()
     await expect.poll(() => described.evaluate((v: HTMLVideoElement) => !v.paused)).toBe(true)
+    // Retain the exact element across close (blocker 5): it must be paused
+    // and its currentTime must not advance after the dialog is dismissed.
+    const handle = await described.elementHandle()
     await page.getByRole('button', { name: 'Done listening' }).click()
-    // Dialog gone — its audio cannot continue; source stays paused.
     await expect(dialog).toHaveCount(0)
+    expect(await handle!.evaluate((v) => (v as HTMLVideoElement).paused)).toBe(true)
+    const t1 = await handle!.evaluate((v) => (v as HTMLVideoElement).currentTime)
+    await page.waitForTimeout(500)
+    const t2 = await handle!.evaluate((v) => (v as HTMLVideoElement).currentTime)
+    expect(t2).toBe(t1)
     await expect.poll(() => source.evaluate((v: HTMLVideoElement) => v.paused)).toBe(true)
   })
 
@@ -222,6 +232,22 @@ test.describe('embed and routing', () => {
   // delivered header is left to the browser — standard behavior — and is
   // recorded as a limitation in the work order.
 
+  test('completion card Close demo (embed) returns the frame to the intro', async ({ page }) => {
+    await page.goto('/onboarding?embed=1')
+    await expect(page.getByText('The scene list')).toBeVisible()
+    await runWalkthroughToListen(page)
+    await page.locator('[data-tour="preview"] button').click()
+    const dialog = page.getByRole('dialog', { name: 'Pre-rendered described example' })
+    await page.getByRole('button', { name: 'Play the example' }).click()
+    await expect
+      .poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => !v.paused))
+      .toBe(true)
+    await page.getByRole('button', { name: 'Done listening' }).click()
+    await page.getByRole('button', { name: 'Next step' }).click()
+    await page.getByRole('button', { name: 'Close demo' }).last().click()
+    await expect(page.getByRole('button', { name: 'Start now' })).toBeVisible()
+  })
+
   test('Close demo in embed mode returns to the intro state', async ({ page }) => {
     await page.goto('/onboarding?embed=1')
     await dismissWalkthrough(page)
@@ -245,19 +271,29 @@ test.describe('embed and routing', () => {
     await expect(page).toHaveURL(/\/$/)
     await expect(page.getByRole('heading', { name: 'Try InstaScribe Live Onboarding' })).toBeVisible()
     await page.getByRole('button', { name: 'Start now' }).click()
-    await expect(page.locator('[data-tour="scenes"]').getByText('Conflict')).toHaveCount(7)
+    await expect(
+      page.locator('[data-tour="scenes"]').getByText('Conflict', { exact: true }),
+    ).toHaveCount(7)
     const stored = await page.evaluate(() => Object.keys(window.localStorage).length)
     expect(stored).toBe(0)
   })
 
-  test('application routes hit the genuine 404 boundary in the browser too', async ({ page }) => {
+  test('application routes hit the genuine 404 boundary in the browser too', async ({
+    page,
+    observation,
+  }) => {
+    observation.allow(/404/) // this test deliberately requests a 404 boundary
     const response = await page.goto('/dashboard')
     expect(response?.status()).toBe(404)
     await expect(page.getByText("That page isn't part of this demo.")).toBeVisible()
     await expect(page.getByRole('link', { name: 'Back to the start' })).toBeVisible()
   })
 
-  test('fixture failure shows an honest error and Try again genuinely retries', async ({ page }) => {
+  test('fixture failure shows an honest error and Try again genuinely retries', async ({
+    page,
+    observation,
+  }) => {
+    observation.allow(/ERR_FAILED|Failed to load resource/) // deliberate abort below
     await page.route('**/data/sintel-blender-cc/scenes.json', (route) => route.abort())
     await page.goto('/onboarding')
     await expect(page.getByText("The demo's local files didn't load.")).toBeVisible()
@@ -296,12 +332,12 @@ test.describe('truthful controls', () => {
     await expect(page.getByText(/≈12\.0s spoken at 1\.5×/)).toBeVisible()
   })
 
-  test.describe('fit to gap is speed-consistent', () => {
+  test.describe('fit to gap is speed-consistent and raw-clear (scene 5)', () => {
     for (const [speed, kept, est] of [
-      ['0.75', 15, '8.0'],
-      ['1', 20, '8.0'],
-      ['1.25', 25, '8.0'],
-      ['1.5', 30, '8.0'],
+      ['0.75', 14, '7.5'],
+      ['1', 17, '6.8'],
+      ['1.25', 24, '7.7'],
+      ['1.5', 28, '7.5'],
     ] as const) {
       test(`at ${speed}× the trim fits scene 5 and completes`, async ({ page }) => {
         await page.goto('/onboarding')
@@ -314,16 +350,67 @@ test.describe('truthful controls', () => {
         await page.getByLabel('Playback speed').selectOption(speed)
         await page.locator('[data-tour="fit"]').click()
         await expect(
-          page.getByText(new RegExp(`Kept the first ${kept} of 44 words — ≈${est}s at ${speed}×`)),
+          page.getByText(
+            new RegExp(
+              `Kept the first ${kept} of 44 words — ≈${est}s at ${speed}× for the 7.8s of usable silence`,
+            ),
+          ),
         ).toBeVisible()
         // The result genuinely fits at this speed: no overrun, no collision.
         await expect(
           page.locator('aside[aria-label="Script panel"]').getByText(/Talks over dialogue/),
         ).toHaveCount(0)
+        await expect(
+          page.locator('aside[aria-label="Script panel"]').getByText('Placed', { exact: true }),
+        ).toBeVisible()
         // And the trim control is no longer offered (nothing left to fix).
         await expect(page.locator('[data-tour="fit"]')).toBeDisabled()
       })
     }
+  })
+
+  test('scene 9 at 1.5× — the review regression — trims raw-clear of the 108.02s dialogue', async ({
+    page,
+  }) => {
+    await page.goto('/onboarding')
+    await dismissWalkthrough(page)
+    await page.getByRole('button', { name: 'Checks' }).click()
+    const checks = page.locator('aside[aria-label="Timing checks panel"]')
+    await checks.getByRole('button', { name: /Scene 9/ }).click()
+    await page.getByLabel('Playback speed').selectOption('1.5')
+    await page.locator('[data-tour="fit"]').click()
+    // Old model: 11 words ≈2.9s "clear" with 0.163s real overlap. New model:
+    // 8 words ≈2.1s inside the 2.8s usable window, zero raw overlap.
+    await expect(
+      page.getByText(/Kept the first 8 of 55 words — ≈2\.1s at 1\.5× for the 2\.8s of usable silence/),
+    ).toBeVisible()
+    const scriptPanel = page.locator('aside[aria-label="Script panel"]')
+    await expect(scriptPanel.getByText(/Talks over dialogue/)).toHaveCount(0)
+    await expect(scriptPanel.getByText('Placed', { exact: true })).toBeVisible()
+    await expect(scriptPanel.locator('textarea')).toHaveValue(
+      'A young woman races up steep, sunlit rooftops.',
+    )
+    await page.getByRole('button', { name: 'Checks' }).click()
+    const row9 = checks.getByRole('button', { name: /Scene 9/ })
+    await expect(row9.getByText('Clear of dialogue')).toBeVisible()
+  })
+
+  test('unfixable collisions get reason-aware copy (scene 2 head-on vs scene 6 generic)', async ({
+    page,
+  }) => {
+    await page.goto('/onboarding')
+    await dismissWalkthrough(page)
+    const scriptPanel = page.locator('aside[aria-label="Script panel"]')
+    // Scene 2 (selected by default): head-on wording, 0 usable silence.
+    await expect(scriptPanel.getByText(/film is speaking\s+from the line's first beat/)).toBeVisible()
+    await expect(scriptPanel.getByText(/0\.0s usable silence/)).toBeVisible()
+    // Scene 6: unfixable but NOT head-on — different, provable wording.
+    await page.locator('[data-tour="scenes"]').getByRole('button', { name: /^Scene 6/ }).click()
+    await expect(
+      scriptPanel.getByText(/this deterministic\s+trim cannot fully clear the conflict/),
+    ).toBeVisible()
+    await expect(scriptPanel.getByText(/first beat/)).toHaveCount(0)
+    await expect(page.locator('[data-tour="fit"]')).toBeDisabled()
   })
 
   test('scene 2 offers no trim — the overlap is untrimmable and says so', async ({ page }) => {
@@ -399,12 +486,20 @@ test.describe('keyboard-only completion', () => {
       .toBe(true)
     await page.keyboard.press('Escape')
     await expect(page.getByRole('button', { name: 'Next step' })).toBeFocused()
+    // Blocker 4 regression: the overlay's delayed target focus (450ms) must
+    // NOT steal focus back from Next once the action is complete.
+    await page.waitForTimeout(700)
+    await expect(page.getByRole('button', { name: 'Next step' })).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(
       page.getByRole('button', { name: 'Finish the walkthrough and explore the editor' }),
     ).toBeFocused()
+    // Blocker 3: the contracted exit is keyboard-operable from the card.
+    await page.keyboard.press('Shift+Tab')
+    await expect(page.getByRole('button', { name: 'Back to the intro' })).toBeFocused()
     await page.keyboard.press('Enter')
-    await expect(page.getByRole('button', { name: 'Replay walkthrough' })).toBeFocused()
+    await expect(page.getByRole('button', { name: 'Start now' })).toBeVisible()
+    await expect(page).toHaveURL(/\/$/)
   })
 
   test('modal steps trap focus inside the walkthrough card', async ({ page }) => {
@@ -525,6 +620,14 @@ test.describe('narrow fallback', () => {
     expect(requests.filter((u) => EXPORT_RE.test(u))).toHaveLength(0)
     await page.getByRole('button', { name: /Load the described example/ }).click()
     await expect.poll(() => requests.filter((u) => EXPORT_RE.test(u)).length).toBeGreaterThan(0)
+    // Explicit narrow-video control + cleanup on exit (blocker 5).
+    await page.getByRole('button', { name: 'Play the example' }).click()
+    const video = page.locator('video')
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused)).toBe(true)
+    const handle = await video.elementHandle()
+    await page.getByRole('link', { name: 'Back to the intro' }).click()
+    await expect(page.getByRole('button', { name: 'Start now' })).toBeVisible()
+    expect(await handle!.evaluate((v) => (v as HTMLVideoElement).paused)).toBe(true)
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     )

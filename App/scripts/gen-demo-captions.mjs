@@ -37,6 +37,24 @@ const ts = (secs) => {
 }
 const cue = (start, end, text) => `${ts(start)} --> ${ts(end)}\n${text}\n`
 
+// Display-layer sentence casing for DELIVERED captions (the immutable source
+// fixture keeps its lowercase artifacts). Mirrors src/portfolio-demo/lib/text.ts.
+const sentenceCaseStart = (text) => {
+  let out = ''
+  let atStart = true
+  for (const ch of text) {
+    if (atStart && /[a-zA-Z]/.test(ch)) {
+      out += ch.toUpperCase()
+      atStart = false
+    } else {
+      out += ch
+      if (/[.!?]/.test(ch)) atStart = true
+      else if (atStart && /[0-9]/.test(ch)) atStart = false
+    }
+  }
+  return out
+}
+
 const transcript = JSON.parse(readFileSync(join(FIXTURES, 'transcript.json'), 'utf8'))
 const scenes = JSON.parse(readFileSync(join(FIXTURES, 'scenes.json'), 'utf8'))
   .filter((s) => s.end > s.start)
@@ -48,7 +66,7 @@ const narrationCues = scenes.map((s, i) => {
   const measured = MEASURED_LINE_SECS[i + 1]
   if (!measured) throw new Error(`no measured duration for scene ${i + 1}`)
   const end = Math.min(CLIP_END, start + measured)
-  return { start, end, text: `[Narrator] ${s.caption}`, scene: i + 1 }
+  return { start, end, text: `[Narrator] ${sentenceCaseStart(s.caption)}`, scene: i + 1 }
 })
 
 const vtt = (cues) =>

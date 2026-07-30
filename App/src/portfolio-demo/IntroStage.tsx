@@ -19,8 +19,10 @@ export function IntroStage() {
         <p className="pd-support">
           Audio description is spoken narration that makes film accessible to blind and
           low-vision audiences. Step inside InstaScribe's review workflow, preloaded with one
-          short film — review its drafted narration, fix a genuine timing problem, and hear
-          the result.
+          short film — review its drafted narration and fix a genuine timing problem. Then
+          listen: your current text can be read aloud locally where your browser has an
+          on-device voice, and a separate pre-rendered pipeline example plays the original
+          drafts with the film.
         </p>
         <div aria-label="What to expect" role="group">
           <ul className="pd-facts">

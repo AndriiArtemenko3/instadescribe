@@ -14,10 +14,12 @@ export default defineConfig({
     baseURL: 'http://localhost:4174',
     viewport: { width: 1440, height: 900 },
   },
+  // Serves the EXACT artifact previously built and verified — the server
+  // refuses to start when dist-portfolio-demo is missing (build first).
   webServer: {
-    command: 'npm run build:portfolio-demo && node scripts/serve-host.mjs --port 4174',
+    command: 'node scripts/serve-host.mjs --port 4174',
     port: 4174,
     reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
+    timeout: 60_000,
   },
 })

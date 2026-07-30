@@ -30,6 +30,14 @@ test.describe('response statuses', () => {
     expect(res.status()).toBe(404)
   })
 
+  test('_headers and _redirects are configuration, not servable assets', async ({ request }) => {
+    for (const path of ['/_headers', '/_redirects']) {
+      const res = await request.get(path)
+      expect(res.status(), path).toBe(404)
+      expect(await res.text(), path).toContain("That page isn't part of this demo")
+    }
+  })
+
   test('robots.txt disallows everything', async ({ request }) => {
     const res = await request.get('/robots.txt')
     expect(res.status()).toBe(200)
@@ -71,7 +79,9 @@ test.describe('security headers (from _headers)', () => {
     expect(res.headers()['x-content-type-options']).toBe('nosniff')
   })
 
-  test('hashed assets are immutable; media and data are day-cached', async ({ request }) => {
+  test('cache classes are unambiguous under Cloudflare join semantics', async ({ request }) => {
+    // Every matching _headers rule applies and duplicates comma-join on the
+    // real host — so each path class must carry EXACTLY one Cache-Control.
     const html = await (await request.get('/')).text()
     const asset = /\/assets\/[^"']+\.js/.exec(html)?.[0]
     expect(asset, 'entry script present in index.html').toBeTruthy()
@@ -85,5 +95,14 @@ test.describe('security headers (from _headers)', () => {
     expect(mediaRes.headers()['cache-control']).toBe('public, max-age=86400')
     const dataRes = await request.get('/data/sintel-blender-cc/scenes.json')
     expect(dataRes.headers()['cache-control']).toBe('public, max-age=86400')
+    // Documents/robots get the short class; unknown 404 paths carry none.
+    expect((await request.get('/')).headers()['cache-control']).toBe('public, max-age=300')
+    expect((await request.get('/onboarding')).headers()['cache-control']).toBe('public, max-age=300')
+    expect((await request.get('/robots.txt')).headers()['cache-control']).toBe('public, max-age=300')
+    expect((await request.get('/definitely-not-a-page')).headers()['cache-control']).toBeUndefined()
+    // No value ever comma-joins two cache directives.
+    for (const res of [assetRes, mediaRes, dataRes]) {
+      expect(res.headers()['cache-control']).not.toContain('max-age=300')
+    }
   })
 })

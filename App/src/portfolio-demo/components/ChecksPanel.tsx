@@ -1,12 +1,11 @@
 import { CheckCircle2, AlertTriangle, CircleSlash } from 'lucide-react'
 import type { Scene } from '@/types'
-import { estimateSpeechSecs, type SceneCollision } from '@/lib/collisions'
+import type { SceneTiming } from '../lib/timing'
 import { DemoPanelTabs, type DemoTab } from './DemoPanelTabs'
 
 interface ChecksPanelProps {
   scenes: Scene[]
-  collisions: Record<number, SceneCollision>
-  speed: number
+  timings: Record<number, SceneTiming>
   activeTab: DemoTab
   onTabChange: (tab: DemoTab) => void
   onSelectScene: (id: number) => void
@@ -19,17 +18,14 @@ interface ChecksPanelProps {
  */
 export function ChecksPanel({
   scenes,
-  collisions,
-  speed,
+  timings,
   activeTab,
   onTabChange,
   onSelectScene,
 }: ChecksPanelProps) {
   const on = scenes.filter((s) => s.active && s.text.trim())
-  const overDialogue = on.filter((s) => collisions[s.id]?.collides)
-  const tooLong = on.filter(
-    (s) => estimateSpeechSecs(s.text, speed) > s.durationSecs,
-  )
+  const overDialogue = on.filter((s) => timings[s.id]?.talksOverDialogue)
+  const tooLong = on.filter((s) => timings[s.id]?.overrunsScene)
 
   return (
     <aside
@@ -50,9 +46,10 @@ export function ChecksPanel({
 
       <ul className="flex-1 space-y-1 overflow-y-auto p-2">
         {scenes.map((s) => {
-          const est = estimateSpeechSecs(s.text, speed)
-          const collides = collisions[s.id]?.collides ?? false
-          const overrun = s.active && s.text.trim() !== '' && est > s.durationSecs
+          const t = timings[s.id]
+          const est = t?.estSecs ?? 0
+          const collides = t?.talksOverDialogue ?? false
+          const overrun = s.active && s.text.trim() !== '' && (t?.overrunsScene ?? false)
           return (
             <li key={s.id}>
               <button
@@ -88,7 +85,7 @@ export function ChecksPanel({
                     >
                       {collides ? <AlertTriangle size={12} /> : <CheckCircle2 size={12} />}
                       {collides
-                        ? `Talks over dialogue (≈${collisions[s.id].overlapSecs.toFixed(1)}s)`
+                        ? `Talks over dialogue (≈${t.rawOverlapSecs.toFixed(1)}s)`
                         : 'Clear of dialogue'}
                     </span>
                   </>
@@ -101,8 +98,9 @@ export function ChecksPanel({
 
       <p className="shrink-0 border-t border-neutral-200 p-3 text-[11px] leading-relaxed text-neutral-500">
         Simple local timing checks: spoken time is estimated from word count (0.4 s per word,
-        adjusted for playback speed) and compared against each scene's window and the film's
-        dialogue map. Computed in your browser; they are not a measure of writing quality.
+        adjusted for playback speed), narration starts 0.25 s into its scene, and "clear"
+        means zero raw overlap with the film's transcript. Computed in your browser; they
+        are not a measure of writing quality.
       </p>
     </aside>
   )

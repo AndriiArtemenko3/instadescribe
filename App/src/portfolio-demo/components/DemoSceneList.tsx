@@ -2,7 +2,7 @@ import { CircleSlash, Check, Plus, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getSceneStatus } from '@/types'
 import type { Scene, SceneStatus } from '@/types'
-import type { SceneCollision } from '@/lib/collisions'
+import type { SceneTiming } from '../lib/timing'
 
 // Fork of the app's SceneListPanel for the demo: identical visual language,
 // with always-visible focus indicators (the app version hides the toggle's
@@ -20,6 +20,12 @@ const STATUS_BORDER: Record<SceneStatus, string> = {
   conflict: 'border-l-danger-400',
   inactive: 'border-l-neutral-200',
 }
+const STATUS_NAME: Record<SceneStatus, string> = {
+  ok: 'placed',
+  empty: 'empty',
+  conflict: 'conflict',
+  inactive: 'switched off',
+}
 const STATUS_DOT: Record<SceneStatus, string> = {
   ok: 'bg-success-400',
   empty: 'bg-warning-400',
@@ -32,7 +38,7 @@ interface DemoSceneListProps {
   activeSceneId: number | null
   onSceneSelect: (scene: Scene) => void
   onActiveToggle: (sceneId: number) => void
-  collisions: Record<number, SceneCollision>
+  timings: Record<number, SceneTiming>
 }
 
 export function DemoSceneList({
@@ -40,7 +46,7 @@ export function DemoSceneList({
   activeSceneId,
   onSceneSelect,
   onActiveToggle,
-  collisions,
+  timings,
 }: DemoSceneListProps) {
   return (
     <aside
@@ -57,8 +63,8 @@ export function DemoSceneList({
 
       <ul className="flex-1 space-y-1 overflow-y-auto p-2">
         {scenes.map((scene) => {
-          const collision = collisions[scene.id]
-          const status = getSceneStatus(scene, collision?.collides)
+          const timing = timings[scene.id]
+          const status = getSceneStatus(scene, timing?.talksOverDialogue)
           const isSelected = activeSceneId === scene.id
 
           return (
@@ -84,13 +90,21 @@ export function DemoSceneList({
                     <span
                       className={cn(
                         'text-xs font-medium',
-                        scene.active ? 'text-neutral-900' : 'text-neutral-500',
+                        scene.active ? 'text-neutral-900' : 'text-neutral-600',
                       )}
                     >
                       Scene {scene.sceneNumber}
+                      {/* Status is never colour-only: chips cover conflict/off,
+                          and every row names its status for assistive tech. */}
+                      <span className="pd-visually-hidden">, {STATUS_NAME[status]}</span>
                     </span>
                   </span>
-                  <span className="text-xs text-neutral-500">
+                  <span
+                    className={cn(
+                      'text-xs',
+                      scene.active ? 'text-neutral-500' : 'text-neutral-600',
+                    )}
+                  >
                     {formatTime(scene.startSecs)}–{formatTime(scene.endSecs)}
                   </span>
                 </span>
@@ -99,19 +113,19 @@ export function DemoSceneList({
                   className={cn(
                     'line-clamp-2 block text-xs leading-relaxed',
                     !scene.active
-                      ? 'text-neutral-500'
+                      ? 'text-neutral-600'
                       : scene.text.trim()
                         ? 'text-neutral-600'
-                        : 'italic text-neutral-500',
+                        : 'italic text-neutral-600',
                   )}
                 >
                   {scene.text.trim() || 'No description yet'}
                 </span>
 
-                {status === 'conflict' && collision && (
+                {status === 'conflict' && timing && (
                   <span
                     className="mt-1.5 inline-flex items-center gap-1 rounded-sm bg-danger-50 px-1.5 py-0.5 text-[10px] font-medium text-danger-800"
-                    title={`This description talks over dialogue for about ${collision.overlapSecs.toFixed(1)}s.`}
+                    title={`This description talks over dialogue for about ${timing.rawOverlapSecs.toFixed(1)}s.`}
                   >
                     <AlertTriangle size={10} strokeWidth={2} />
                     Conflict

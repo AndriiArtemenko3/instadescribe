@@ -62,3 +62,52 @@ test('narrow text fallback', async ({ page }) => {
   await page.getByText('needs a wider display').waitFor()
   await scan(page, 'narrow fallback 390')
 })
+
+test('action-done state (scene 2 switched off)', async ({ page }) => {
+  await page.goto('/onboarding')
+  await page.getByText('The scene list').waitFor()
+  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Next step' }).click()
+  await page.locator('[data-tour="toggle-line"]').click()
+  await page.getByText('Scene 2’s conflict is cleared').first().waitFor()
+  await scan(page, 'action-done step 5')
+})
+
+test('completion card', async ({ page }) => {
+  await page.goto('/onboarding')
+  await page.getByText('The scene list').waitFor()
+  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Next step' }).click()
+  await page.locator('[data-tour="toggle-line"]').click()
+  await page.getByRole('button', { name: 'Next step' }).click()
+  await page.getByRole('button', { name: 'Next step' }).click()
+  await page.locator('[data-tour="fit"]').click()
+  await page.getByRole('button', { name: 'Next step' }).click()
+  await page.getByRole('button', { name: /Original line · Onyx/ }).click()
+  await page.getByRole('button', { name: 'Next step' }).click()
+  await page.locator('[data-tour="preview"] button').click()
+  const dialog = page.getByRole('dialog', { name: 'Pre-rendered described example' })
+  await page.getByRole('button', { name: 'Play the example' }).click()
+  await expect
+    .poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => !v.paused))
+    .toBe(true)
+  await page.getByRole('button', { name: 'Done listening' }).click()
+  await page.getByRole('button', { name: 'Next step' }).click()
+  await page.getByRole('heading', { name: 'That’s the loop' }).waitFor()
+  await scan(page, 'completion card')
+})
+
+test('fixture-error state', async ({ page, observation }) => {
+  observation.allow(/ERR_FAILED|Failed to load resource/)
+  await page.route('**/data/sintel-blender-cc/scenes.json', (route) => route.abort())
+  await page.goto('/onboarding')
+  await page.getByText("The demo's local files didn't load.").waitFor()
+  await scan(page, 'fixture error state')
+})
+
+test('narrow fallback with the example loaded', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/onboarding')
+  await page.getByText('needs a wider display').waitFor()
+  await page.getByRole('button', { name: /Load the described example/ }).click()
+  await page.getByRole('button', { name: 'Play the example' }).waitFor()
+  await scan(page, 'narrow fallback with loaded video')
+})

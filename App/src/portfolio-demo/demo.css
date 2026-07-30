@@ -16,6 +16,7 @@
      touching the shared application tokens (demo.css loads after index.css
      and only in this entry). */
   --primary: 158 74% 26%;
+  --pd-primary-hover: 158 74% 21%;
 
   --pd-media: #16181c;
   --pd-raised: #1a1c20;
@@ -229,6 +230,13 @@
     from { opacity: 0; }
     to { opacity: 1; }
   }
+}
+
+/* The shared Button's default-variant hover lightens to brand-500 (#179167),
+   which fails AA with its white label (3.27:1). Demo-scoped correction: hover
+   DARKENS instead, keeping visible feedback and ≥4.5:1 in the hover state. */
+button[data-slot='button'].bg-primary:hover:not(:disabled) {
+  background-color: hsl(var(--pd-primary-hover));
 }
 
 /* Utility: visually hidden but accessible. */

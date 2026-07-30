@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getSceneStatus } from '@/types'
 import type { Scene, SceneStatus } from '@/types'
-import { estimateSpeechSecs, type SceneCollision } from '@/lib/collisions'
 import { fitToGap } from '../lib/fitToGap'
+import type { SceneTiming } from '../lib/timing'
 import { playBakedLine, speakWithBrowserVoice, type PlaybackHandle } from '../lib/narration'
 import { resolveLocalVoice, type LocalVoiceState } from '../lib/localVoice'
 import { claimAudio, clearAudioClaim } from '../lib/audioBus'
@@ -36,8 +36,8 @@ const SPEEDS = [0.75, 1.0, 1.25, 1.5]
 
 interface DemoScriptPanelProps {
   scene: Scene | null
-  availableGapSecs: number
-  collision: SceneCollision | null
+  /** Authoritative per-scene timing (lib/timing.ts) for the selected scene. */
+  timing: SceneTiming | null
   activeTab: DemoTab
   onTabChange: (tab: DemoTab) => void
   onTextChange: (sceneId: number, text: string) => void
@@ -61,8 +61,7 @@ interface DemoScriptPanelProps {
  */
 export function DemoScriptPanel({
   scene,
-  availableGapSecs,
-  collision,
+  timing,
   activeTab,
   onTabChange,
   onTextChange,
@@ -120,17 +119,18 @@ export function DemoScriptPanel({
     )
   }
 
-  const status = getSceneStatus(scene, collision?.collides)
-  const estSecs = estimateSpeechSecs(scene.text, speed)
+  const status = getSceneStatus(scene, timing?.talksOverDialogue)
+  const estSecs = timing?.estSecs ?? 0
+  const usableSecs = timing?.usableSecs ?? 0
   const baked = BAKED_ONYX_SCENES.has(scene.sceneNumber)
 
   function handleFit() {
     if (!scene || !fittable) return
-    const r = fitToGap(scene.text, availableGapSecs, speed)
+    const r = fitToGap(scene.text, usableSecs, speed)
     onFitText(scene.id, r.text)
     setFitNote(
       `Kept the first ${r.keptWords} of ${r.totalWords} words — ≈${r.estimatedSecs.toFixed(1)}s ` +
-        `at ${speed.toFixed(2).replace(/\.?0+$/, '')}× for the ${r.targetSecs.toFixed(1)}s of clear ` +
+        `at ${speed.toFixed(2).replace(/\.?0+$/, '')}× for the ${r.targetSecs.toFixed(1)}s of usable ` +
         'silence. Local deterministic trim, no AI.',
     )
     stopPlayback()
@@ -227,14 +227,16 @@ export function DemoScriptPanel({
               className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-brand-800 transition-colors hover:bg-brand-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-400 disabled:opacity-40 disabled:hover:bg-transparent"
               title={
                 fittable
-                  ? `Trim the line to the ${availableGapSecs.toFixed(1)}s of clear silence at ${speed
+                  ? `Trim the line to the ${usableSecs.toFixed(1)}s of usable silence at ${speed
                       .toFixed(2)
                       .replace(/\.?0+$/, '')}× — a local, deterministic cut (no AI)`
                   : !scene.active
                     ? 'Switch the line on to edit it'
-                    : collision?.collides
-                      ? 'Trimming cannot clear this overlap — the film is speaking from the line’s first beat'
-                      : 'Offered when the line runs longer than the clear silence available to this scene'
+                    : timing?.talksOverDialogue
+                      ? timing.headOnDialogue
+                        ? 'Trimming cannot clear this overlap — the film is speaking from the line’s first beat'
+                        : 'This deterministic trim cannot fully clear the conflict here — edit the line or switch it off'
+                      : 'Offered when the line runs longer than the silence usable from where its narration starts'
               }
             >
               <Scissors size={12} />
@@ -255,16 +257,19 @@ export function DemoScriptPanel({
 
           <p className="text-xs leading-relaxed text-neutral-500" aria-live="off">
             ≈{estSecs.toFixed(1)}s spoken at {speed.toFixed(2).replace(/\.?0+$/, '')}× ·{' '}
-            {availableGapSecs.toFixed(1)}s clear silence available · scene window{' '}
-            {scene.durationSecs.toFixed(0)}s
+            {usableSecs.toFixed(1)}s usable silence (from where the narration starts) · scene
+            window {scene.durationSecs.toFixed(0)}s
           </p>
-          {collision?.collides && (
+          {timing?.talksOverDialogue && (
             <p className="text-xs leading-relaxed text-danger-800">
               {fittable
-                ? `Talks over dialogue for ≈${collision.overlapSecs.toFixed(1)}s — the line spills past
-                   its clear silence into the film's later lines. Trimming fixes this.`
-                : `Talks over dialogue for ≈${collision.overlapSecs.toFixed(1)}s — the film is speaking
-                   from the line's first beat, so trimming alone cannot clear this.`}
+                ? `Talks over dialogue for ≈${timing.rawOverlapSecs.toFixed(1)}s — the line spills past
+                   its usable silence into the film's later lines. Trimming fixes this.`
+                : timing.headOnDialogue
+                  ? `Talks over dialogue for ≈${timing.rawOverlapSecs.toFixed(1)}s — the film is speaking
+                     from the line's first beat, so trimming alone cannot clear this.`
+                  : `Talks over dialogue for ≈${timing.rawOverlapSecs.toFixed(1)}s — this deterministic
+                     trim cannot fully clear the conflict; edit the line or switch it off.`}
             </p>
           )}
         </div>

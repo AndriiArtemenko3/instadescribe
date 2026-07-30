@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type { AdGap, AudioEvent, Scene } from '@/types'
-import type { SceneCollision } from '@/lib/collisions'
+import type { SceneTiming } from '../lib/timing'
 import { claimAudio, clearAudioClaim } from '../lib/audioBus'
 import { CAPTIONS_SRC, POSTER_SRC } from '../lib/fixtures'
 
@@ -23,7 +23,7 @@ interface DemoVideoPanelProps {
   scenes: Scene[]
   adGaps: AdGap[]
   audioEvents: AudioEvent[]
-  collisions: Record<number, SceneCollision>
+  timings: Record<number, SceneTiming>
   currentTime: number
   onSeek: (secs: number) => void
   onTimeUpdate: (secs: number) => void
@@ -35,14 +35,14 @@ export function DemoVideoPanel({
   scenes,
   adGaps,
   audioEvents,
-  collisions,
+  timings,
   currentTime,
   onSeek,
   onTimeUpdate,
 }: DemoVideoPanelProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0
-  const conflictCount = scenes.filter((s) => collisions[s.id]?.collides).length
+  const conflictCount = scenes.filter((s) => timings[s.id]?.talksOverDialogue).length
 
   useEffect(() => {
     const video = videoRef.current
@@ -137,18 +137,18 @@ export function DemoVideoPanel({
             )
           })}
           {scenes.map((scene) => {
-            const collision = collisions[scene.id]
-            if (!collision?.collides || duration <= 0) return null
-            if (collision.overlapStart === null || collision.overlapEnd === null) return null
-            const left = (collision.overlapStart / duration) * 100
-            const width = ((collision.overlapEnd - collision.overlapStart) / duration) * 100
+            const timing = timings[scene.id]
+            if (!timing?.talksOverDialogue || duration <= 0) return null
+            if (timing.overlapStart === null || timing.overlapEnd === null) return null
+            const left = (timing.overlapStart / duration) * 100
+            const width = ((timing.overlapEnd - timing.overlapStart) / duration) * 100
             if (width <= 0) return null
             return (
               <div
                 key={`overrun-${scene.id}`}
                 className="absolute top-0 h-full bg-danger-400 opacity-50"
                 style={{ left: `${left}%`, width: `${width}%` }}
-                title={`Scene ${scene.sceneNumber} narration talks over dialogue for ~${collision.overlapSecs.toFixed(1)}s.`}
+                title={`Scene ${scene.sceneNumber} narration talks over dialogue for ~${timing.rawOverlapSecs.toFixed(1)}s.`}
               />
             )
           })}

@@ -45,7 +45,7 @@ jobs:
         run: npm run build:portfolio-demo
       - name: Verify the artifact (forbidden strings, budget, manifests)
         run: npm run verify:portfolio-demo
-      - name: Browser tests (functional + host statuses/headers + axe) against the fresh bundle
+      - name: Browser tests (functional + host statuses/headers + axe) against the verified artifact
         run: npm run test:portfolio-demo
 
   frontend:
@@ -66,5 +66,7 @@ jobs:
         run: npm run lint
       - name: Typecheck
         run: npx tsc -b
+      - name: Build (default application)
+        run: npm run build
       - name: Test
         run: npm run test

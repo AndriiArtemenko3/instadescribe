@@ -43,8 +43,10 @@ interface WalkthroughOverlayProps {
   onNext: () => void
   onBack: () => void
   onExit: () => void
-  /** Completion card's single secondary action. */
+  /** Completion card's secondary actions (restart + contracted exit). */
   onRestartDemo?: () => void
+  exitDemoLabel?: string
+  onExitDemo?: () => void
 }
 
 /**
@@ -62,6 +64,8 @@ export function WalkthroughOverlay({
   onBack,
   onExit,
   onRestartDemo,
+  exitDemoLabel,
+  onExitDemo,
 }: WalkthroughOverlayProps) {
   const step = steps[index]
   const isLast = index === steps.length - 1
@@ -109,12 +113,15 @@ export function WalkthroughOverlay({
         : el.querySelector<HTMLElement>('button, a[href], [tabindex]')
       : null
     if (target) target.setAttribute('aria-describedby', `pd-walk-body-${step.id}`)
-    const t = window.setTimeout(() => target?.focus(), 450)
+    // Once the action is complete (e.g. remounting after the described-film
+    // dialog closes), focus belongs on the enabled continue button — the
+    // delayed target focus must not steal it back (blocker 4).
+    const t = actionDone ? null : window.setTimeout(() => target?.focus(), 450)
     return () => {
-      window.clearTimeout(t)
+      if (t !== null) window.clearTimeout(t)
       target?.removeAttribute('aria-describedby')
     }
-  }, [index, step])
+  }, [index, step, actionDone])
   useEffect(() => {
     if (step?.mode === 'action' && actionDone) primaryRef.current?.focus()
   }, [actionDone, step])
@@ -242,10 +249,15 @@ export function WalkthroughOverlay({
       </span>
 
       {isLast ? (
-        <div className="mt-4 flex items-center justify-end gap-2">
+        <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
           {onRestartDemo && (
             <Button variant="outline" size="sm" onClick={onRestartDemo}>
               Restart demo
+            </Button>
+          )}
+          {onExitDemo && (
+            <Button variant="outline" size="sm" onClick={onExitDemo}>
+              {exitDemoLabel ?? 'Close'}
             </Button>
           )}
           <Button

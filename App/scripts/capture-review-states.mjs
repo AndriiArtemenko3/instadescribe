@@ -115,14 +115,23 @@ await at(1232, 693, async () => {
   await page.getByRole('button', { name: /Original line · Onyx/ }).click()
   await page.getByRole('button', { name: 'Next step' }).click()
   await page.locator('[data-tour="preview"] button').click()
+  // Initial dialog focus = the Play control (visible focus evidence).
+  await page.getByRole('button', { name: 'Play the example' }).waitFor()
+  await shot(page, 'listen-dialog-focus-play')
+  await page.getByRole('button', { name: 'Play the example' }).click()
   const dialogVideo = page.getByRole('dialog').locator('video')
-  await dialogVideo.click()
   await page.waitForTimeout(600)
   await shot(page, 'editor-1232x693-listen-playing')
   await page.getByRole('button', { name: 'Done listening' }).click()
   await page.getByRole('button', { name: 'Next step' }).click()
   await page.getByRole('heading', { name: 'That’s the loop' }).waitFor()
   await shot(page, 'editor-1232x693-complete')
+  // Contracted exit, keyboard-focused (visible focus evidence), then used.
+  await page.keyboard.press('Shift+Tab')
+  await shot(page, 'completion-focus-back-to-intro')
+  await page.keyboard.press('Enter')
+  await page.getByRole('button', { name: 'Start now' }).waitFor()
+  await shot(page, 'completion-exit-standalone-result')
 })
 
 // New correction-pass states: initial transcript-authority checks, the
@@ -140,8 +149,38 @@ await at(1232, 693, async () => {
     .click()
   await page.getByLabel('Playback speed').selectOption('0.75')
   await page.locator('[data-tour="fit"]').click()
-  await page.getByText(/Kept the first 15 of 44 words/).waitFor()
+  await page.getByText(/Kept the first 14 of 44 words/).waitFor()
   await shot(page, 'editor-1232x693-fit-at-0.75x')
+})
+await at(1232, 693, async () => {
+  // The review's regression case: scene 9 at 1.5× — now raw-clear.
+  await page.goto(`${BASE}/onboarding`)
+  await page.getByText('The scene list').waitFor()
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: 'Checks' }).click()
+  await page
+    .locator('aside[aria-label="Timing checks panel"]')
+    .getByRole('button', { name: /Scene 9/ })
+    .click()
+  await page.getByLabel('Playback speed').selectOption('1.5')
+  await page.locator('[data-tour="fit"]').click()
+  await page.getByText(/Kept the first 8 of 55 words/).waitFor()
+  await shot(page, 'editor-1232x693-scene9-fit-1.5x')
+})
+await at(1232, 693, async () => {
+  // Reason-aware unfixable copy: scene 6 (not head-on).
+  await page.goto(`${BASE}/onboarding`)
+  await page.getByText('The scene list').waitFor()
+  await page.keyboard.press('Escape')
+  await page.locator('[data-tour="scenes"]').getByRole('button', { name: /^Scene 6/ }).click()
+  await page.getByText(/cannot fully clear the conflict/).waitFor()
+  await shot(page, 'editor-1232x693-scene6-reason-copy')
+})
+await at(1232, 693, async () => {
+  // Reserved host files return the genuine 404 boundary.
+  await page.goto(`${BASE}/_headers`)
+  await page.getByText("That page isn't part of this demo.").waitFor()
+  await shot(page, 'host-404-reserved-headers')
 })
 await at(1232, 693, async () => {
   await page.goto(`${BASE}/dashboard`)
@@ -152,6 +191,9 @@ await at(390, 844, async () => {
   await page.goto(`${BASE}/onboarding`)
   await page.getByRole('link', { name: 'Back to the intro' }).waitFor()
   await shot(page, 'fallback-390-standalone-exit')
+  await page.getByRole('button', { name: /Load the described example/ }).click()
+  await page.getByRole('button', { name: 'Play the example' }).waitFor()
+  await shot(page, 'fallback-390-loaded-example')
 })
 
 // ── Fallback states ──────────────────────────────────────────────────────────

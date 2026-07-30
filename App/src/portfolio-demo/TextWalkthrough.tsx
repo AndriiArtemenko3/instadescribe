@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { claimAudio, clearAudioClaim } from './lib/audioBus'
 import { postExitMessage } from './lib/embed'
 import {
   loadDemoData,
@@ -39,6 +40,18 @@ export default function TextWalkthrough({ narrow, embed, eligibleWidth }: TextWa
   const [transcript, setTranscript] = useState<TranscriptUtterance[]>([])
   const [loadError, setLoadError] = useState(false)
   const [showExample, setShowExample] = useState(false)
+  const [examplePlaying, setExamplePlaying] = useState(false)
+  const exampleRef = useRef<HTMLVideoElement>(null)
+
+  // Same explicit media guarantees as the dialog: pause + clear the bus claim
+  // on unmount (route/exit transitions).
+  useEffect(
+    () => () => {
+      exampleRef.current?.pause()
+      clearAudioClaim('narrow-example')
+    },
+    [],
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -165,9 +178,37 @@ export default function TextWalkthrough({ narrow, embed, eligibleWidth }: TextWa
           are not in it.
         </p>
         {showExample ? (
+          <>
+          <p>
+            <button
+              type="button"
+              className="pd-link"
+              onClick={() => {
+                const v = exampleRef.current
+                if (!v) return
+                if (v.paused) void v.play()
+                else v.pause()
+              }}
+            >
+              {examplePlaying ? 'Pause the example' : 'Play the example'}
+            </button>
+          </p>
           <video
+            ref={exampleRef}
             controls
             preload="metadata"
+            onPlaying={() => {
+              setExamplePlaying(true)
+              claimAudio('narrow-example', () => exampleRef.current?.pause())
+            }}
+            onPause={() => {
+              setExamplePlaying(false)
+              clearAudioClaim('narrow-example')
+            }}
+            onEnded={() => {
+              setExamplePlaying(false)
+              clearAudioClaim('narrow-example')
+            }}
             aria-label="Sintel excerpt with audio description narration mixed in (pre-rendered)"
           >
             <source src={EXPORT_SRC} type="video/mp4" />
@@ -178,6 +219,7 @@ export default function TextWalkthrough({ narrow, embed, eligibleWidth }: TextWa
               label="Dialogue + narration (English)"
             />
           </video>
+          </>
         ) : (
           <p>
             <button type="button" className="pd-link" onClick={() => setShowExample(true)}>

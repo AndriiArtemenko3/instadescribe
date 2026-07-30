@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Pause, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ModalDialog } from './ModalDialog'
@@ -22,8 +22,21 @@ interface ListenDialogProps {
 export function ListenDialog({ onClose, onPlaybackStarted, sceneTwoRemoved }: ListenDialogProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [playing, setPlaying] = useState(false)
+
+  // Explicit media cleanup: pause the exact element and clear its audio-bus
+  // claim on EVERY exit path (Done, ×, Escape, backdrop, unmount) — never
+  // rely on detach behavior.
+  function stopVideo() {
+    videoRef.current?.pause()
+    clearAudioClaim('described-example')
+  }
+  useEffect(() => stopVideo, [])
+  function handleClose() {
+    stopVideo()
+    onClose()
+  }
   return (
-    <ModalDialog titleId="pd-listen-title" title="Pre-rendered described example" onClose={onClose}>
+    <ModalDialog titleId="pd-listen-title" title="Pre-rendered described example" onClose={handleClose}>
       <div className="space-y-3">
         <p className="text-sm leading-relaxed text-neutral-600">
           This is the film with narration mixed in,{' '}
@@ -86,7 +99,7 @@ export function ListenDialog({ onClose, onPlaybackStarted, sceneTwoRemoved }: Li
             {playing ? <Pause size={14} /> : <Play size={14} />}
             {playing ? 'Pause the example' : 'Play the example'}
           </Button>
-          <Button onClick={onClose}>Done listening</Button>
+          <Button onClick={handleClose}>Done listening</Button>
         </div>
       </div>
     </ModalDialog>

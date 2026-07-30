@@ -1,67 +1,113 @@
 import { describe, it, expect } from 'vitest'
 import { fitToGap, canFitToGap, SECS_PER_WORD } from './fitToGap'
+import { sentenceCaseStart } from './text'
 
-// Scene 5's committed draft (44 words) — the walkthrough's trim example.
+// Scene 5 and scene 9 drafts exactly as the demo displays them (sentence-cased
+// at load; the committed fixtures are unchanged).
 const SCENE5 =
   'Filtered beams of morning light fall over a young woman and a dragon-like creature as they ' +
   'awaken in a small, dim shelter, lying close together on a patchwork of blankets. She stirs ' +
   'gently, while it nestles against her, both basking in the soft glow.'
+const SCENE9 = sentenceCaseStart(
+  'a young woman races up steep, sunlit rooftops as a dragon-like creature soars overhead, ' +
+    'bathed in warm golden light. Ancient stone structures and vibrant city sprawl stretch ' +
+    'beneath them, with the sun setting in radiant hues across the sky. The cinematic scene ' +
+    'lingers as both figures pause at the summit, silhouetted against the glowing cityscape.',
+)
 
-describe('fitToGap — speed-aware budget (floor, never overshoot)', () => {
+// Usable silence per timing.ts: scene 5 → min(70.32, 68) − 60.25 = 7.75 s;
+// scene 9 → min(108.02, 119) − 105.25 = 2.77 s.
+const SCENE5_USABLE = 7.75
+const SCENE9_USABLE = 2.77
+
+describe('fitToGap — pinned scene 5 outputs at every offered speed (blockers 1+6)', () => {
   it.each([
-    [0.75, 15],
-    [1, 20],
-    [1.25, 25],
-    [1.5, 30],
-  ])('at %s× an 8.0s gap budgets %i words and the result genuinely fits', (speed, expectedWords) => {
-    const r = fitToGap(SCENE5, 8, speed)
-    expect(r.targetWords).toBe(expectedWords)
-    expect(r.keptWords).toBe(Math.min(expectedWords, r.totalWords))
-    expect(r.estimatedSecs).toBeLessThanOrEqual(8)
-    // One timing model everywhere: est = words × 0.4 / speed.
-    expect(r.estimatedSecs).toBeCloseTo((r.keptWords * SECS_PER_WORD) / speed, 2)
+    [0.75, 14, 'Filtered beams of morning light fall over a young woman and a dragon-like creature.'],
+    [1, 17, 'Filtered beams of morning light fall over a young woman and a dragon-like creature as they awaken.'],
+    [
+      1.25, 24,
+      'Filtered beams of morning light fall over a young woman and a dragon-like creature as they awaken in a small, dim shelter, lying close.',
+    ],
+    [
+      1.5, 28,
+      'Filtered beams of morning light fall over a young woman and a dragon-like creature as they awaken in a small, dim shelter, lying close together on a patchwork.',
+    ],
+  ])('at %s× keeps %i words with a clean boundary', (speed, kept, text) => {
+    const r = fitToGap(SCENE5, SCENE5_USABLE, speed)
+    expect(r.keptWords).toBe(kept)
+    expect(r.text).toBe(text)
+    expect(r.estimatedSecs).toBeLessThanOrEqual(SCENE5_USABLE)
+  })
+})
+
+describe('fitToGap — pinned scene 9 outputs at every offered speed (blockers 1+6)', () => {
+  it.each([
+    [0.75, 4, 'A young woman races.'],
+    [1, 4, 'A young woman races.'],
+    [1.25, 8, 'A young woman races up steep, sunlit rooftops.'],
+    [1.5, 8, 'A young woman races up steep, sunlit rooftops.'],
+  ])('at %s× keeps %i words with a clean boundary', (speed, kept, text) => {
+    const r = fitToGap(SCENE9, SCENE9_USABLE, speed)
+    expect(r.keptWords).toBe(kept)
+    expect(r.text).toBe(text)
+    expect(r.estimatedSecs).toBeLessThanOrEqual(SCENE9_USABLE)
   })
 
-  it('floors instead of rounding: gap 6.88s at 0.75× gives 12 words (6.4s), not 13 (6.93s)', () => {
+  it('never publishes the malformed fragments the review flagged', () => {
+    for (const speed of [0.75, 1, 1.25, 1.5]) {
+      const five = fitToGap(SCENE5, SCENE5_USABLE, speed).text
+      const nine = fitToGap(SCENE9, SCENE9_USABLE, speed).text
+      for (const out of [five, nine]) {
+        expect(out).not.toMatch(/ (as|a|an|the|of|in|on|and|or|up|to|with)\.$/)
+        expect(out).not.toMatch(/,\.$/)
+        expect(out).not.toMatch(/dragon-like\.$/)
+      }
+    }
+  })
+})
+
+describe('fitToGap — boundary cleanup mechanics', () => {
+  it('rolls back dangling function words', () => {
+    expect(fitToGap('She sets down a bowl of', 2.4, 1).text).toBe('She sets down a bowl.')
+  })
+
+  it('rolls back comma-open phrase endings', () => {
+    expect(fitToGap('A young woman races up steep, sunlit rooftops', 2.4, 1).text).toBe(
+      'A young woman races.',
+    )
+  })
+
+  it('never invents content — output is a prefix of the input plus a period', () => {
+    const r = fitToGap(SCENE5, SCENE5_USABLE, 1)
+    expect(SCENE5.startsWith(r.text.slice(0, -1))).toBe(true)
+  })
+
+  it('floors the budget so the trim always genuinely fits (0.75× regression)', () => {
     const r = fitToGap(SCENE5, 6.88, 0.75)
     expect(r.targetWords).toBe(12)
     expect(r.estimatedSecs).toBeLessThanOrEqual(6.88)
   })
 
-  it('is idempotent per speed: re-trimming the trimmed text changes nothing', () => {
-    const first = fitToGap(SCENE5, 8, 1.25)
-    const second = fitToGap(first.text, 8, 1.25)
+  it('is idempotent per speed', () => {
+    const first = fitToGap(SCENE5, SCENE5_USABLE, 1.25)
+    const second = fitToGap(first.text, SCENE5_USABLE, 1.25)
     expect(second.changed).toBe(false)
     expect(second.text).toBe(first.text)
   })
 
-  it('trims hand-edited text the same deterministic way', () => {
-    const edited = 'One two three four five six seven eight nine ten eleven twelve thirteen'
-    const r = fitToGap(edited, 2, 1)
-    expect(r.targetWords).toBe(5)
-    expect(r.text).toBe('One two three four five.')
-  })
-
-  it('strips a trailing comma/semicolon/colon before adding the period', () => {
-    expect(fitToGap('one two three four, five six', 1.6, 1).text).toBe('one two three four.')
-  })
-
-  it('never trims below 3 words', () => {
-    expect(fitToGap('alpha beta gamma delta', 0.1, 1).keptWords).toBe(3)
-  })
-
-  it('leaves a short line unchanged', () => {
-    const r = fitToGap('She waits quietly.', 8, 1)
-    expect(r.changed).toBe(false)
-    expect(r.text).toBe('She waits quietly.')
+  it('never trims below 3 words and uses one timing model', () => {
+    const r = fitToGap('alpha beta gamma delta', 0.1, 1)
+    expect(r.keptWords).toBe(3)
+    expect(r.estimatedSecs).toBeCloseTo((3 * SECS_PER_WORD) / 1, 2)
   })
 })
 
 describe('canFitToGap', () => {
-  it('offers the trim only for a genuine overrun with a usable gap', () => {
-    expect(canFitToGap(17.6, 8)).toBe(true) // scene 5 at 1×
-    expect(canFitToGap(23.47, 8)).toBe(true) // scene 5 at 0.75×
-    expect(canFitToGap(6, 8)).toBe(false) // already fits
-    expect(canFitToGap(18, 1.0)).toBe(false) // gap too small to trim into
+  it('offers the trim only for a genuine overrun with usable silence', () => {
+    expect(canFitToGap(17.6, 7.75)).toBe(true) // scene 5 at 1×
+    expect(canFitToGap(22.0, 2.77)).toBe(true) // scene 9 at 1×
+    expect(canFitToGap(18.0, 0)).toBe(false) // scene 2: no usable silence
+    expect(canFitToGap(14.8, 1.07)).toBe(false) // scene 6: below the minimum
+    expect(canFitToGap(6, 7.75)).toBe(false) // already fits
   })
 })

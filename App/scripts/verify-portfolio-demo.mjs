@@ -57,9 +57,7 @@ const walk = (dir) =>
     e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)],
   )
 
-const files = walk(DIST)
-  .filter((f) => !f.endsWith('manifest.sha256'))
-  .sort()
+const files = walk(DIST).sort()
 const textExt = new Set(['.js', '.css', '.html', '.txt', '.vtt', '.json', '.svg'])
 let failures = 0
 
@@ -86,7 +84,7 @@ for (const f of files) {
     failures++
   }
 }
-for (const required of ['_headers', '_redirects', 'robots.txt', 'index.html']) {
+for (const required of ['_headers', '_redirects', 'robots.txt', 'index.html', '404.html']) {
   if (!existsSync(join(DIST, required))) {
     console.error(`MISSING required host file: ${required}`)
     failures++
@@ -118,8 +116,9 @@ if (total > MAX_TOTAL_BYTES) {
 // 4 — manifests. The deploy manifest is VERIFIED against the committed copy;
 // pass UPDATE_MANIFEST=1 to intentionally refresh it after a reviewed change.
 const sha256 = (p) => createHash('sha256').update(readFileSync(p)).digest('hex')
+// The manifest lives ONLY in docs/ — nothing unmanifested is written into the
+// deploy directory itself.
 const manifest = files.map((f) => `${sha256(f)}  ${relative(DIST, f)}`).join('\n') + '\n'
-writeFileSync(join(DIST, 'manifest.sha256'), manifest)
 const committedManifest = join(DOCS, 'DEPLOY_MANIFEST.sha256')
 if (process.env.UPDATE_MANIFEST === '1' || !existsSync(committedManifest)) {
   writeFileSync(committedManifest, manifest)

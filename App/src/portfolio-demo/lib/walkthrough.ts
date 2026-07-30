@@ -10,10 +10,12 @@ import type { WalkStep } from '../components/WalkthroughOverlay'
 //   the overlap across "Oh" / "Hey, it's almost done" / "Hey sit still"
 //   totals ≈ 4.7 s. No trim at any offered speed clears it.
 //
-//   scene 5 (60–68 s, 44-word draft ≈ 17.6 s at 1×): overruns its 8.0 s of
-//   clear silence into the film's later lines "Oh" (70.32 s) and "Skills"
-//   (73.48 s) — ≈ 2.8 s of overlap. The deterministic trim clears both the
-//   overrun and the collision at every offered speed.
+//   scene 5 (60–68 s, 44-word draft ≈ 17.6 s at 1×): its narration starts at
+//   60.25 s with ≈ 7.75 s of usable silence (to the scene's end), yet the
+//   draft spills into the film's later lines "Oh" (70.32 s) and "Skills"
+//   (73.48 s) — ≈ 2.8 s of raw overlap. The deterministic trim clears both
+//   the overrun and the collision — with ZERO raw overlap — at every offered
+//   speed (pinned in dialogueAuthority.test.ts).
 
 export const SCENE_TWO_ID = 2
 export const SCENE_FIVE_ID = 5
@@ -48,7 +50,7 @@ export const WALKTHROUGH_STEPS: WalkStep[] = [
     body:
       'Selecting a scene opens its description here. The time budget under the text keeps ' +
       'score: how long the line takes to speak (estimated at 0.4 s per word, adjusted for ' +
-      'speed) versus the clear silence its moment offers.',
+      'speed) versus the silence usable from where its narration actually starts.',
   },
   // ── IDENTIFY ─────────────────────────────────────────────────────────────
   {
@@ -83,9 +85,9 @@ export const WALKTHROUGH_STEPS: WalkStep[] = [
     selector: '[data-tour="script"]',
     title: 'Another line runs into the next dialogue',
     body:
-      'Scene 5’s draft is 44 words — roughly 17.6 estimated seconds spilling past its ' +
-      '8 seconds of clear silence, straight into the film’s next lines (“Oh”, ' +
-      '“Skills”). This one a trim genuinely fixes.',
+      'Scene 5’s draft is 44 words — roughly 17.6 estimated seconds against the ' +
+      '≈7.8 seconds of silence usable from where its narration starts, spilling straight ' +
+      'into the film’s next lines (“Oh”, “Skills”). This one a trim genuinely fixes.',
   },
   {
     id: 'refine-fit',

@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 // Host-faithful static server for dist-portfolio-demo.
 //
-// Implements the DOCUMENTED Cloudflare Pages semantics the deploy package
-// relies on, so response statuses and headers can be asserted locally:
+// Implements the DOCUMENTED Cloudflare Pages semantics
+// (https://developers.cloudflare.com/pages/configuration/headers/) so
+// statuses and headers can be asserted locally:
 //   - `_redirects` rewrites (only `/onboarding → /index.html 200` is used);
 //   - a top-level `404.html` served with a genuine 404 status for unknown
 //     paths (its presence disables Pages' implicit SPA fallback);
-//   - `_headers` blocks applied to matching paths (later blocks override
-//     earlier values for the same header name);
+//   - `_headers`: EVERY matching rule applies; duplicate header names are
+//     COMMA-JOINED (not overwritten); a `! Header-Name` line detaches the
+//     header from previous matches;
+//   - `_headers` and `_redirects` are configuration, not assets — they are
+//     never served (genuine 404);
+//   - binds to loopback (127.0.0.1) by default;
 //   - basic single-range support so media elements can actually play/seek.
 //
 // This is an emulation of documented behavior for verification — the final
@@ -51,8 +56,15 @@ function parseHeaders() {
       current = { pattern: line.trim(), headers: [] }
       blocks.push(current)
     } else if (current) {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('!')) {
+        current.headers.push({ detach: trimmed.slice(1).trim() })
+        continue
+      }
       const idx = line.indexOf(':')
-      if (idx > 0) current.headers.push([line.slice(0, idx).trim(), line.slice(idx + 1).trim()])
+      if (idx > 0) {
+        current.headers.push({ name: line.slice(0, idx).trim(), value: line.slice(idx + 1).trim() })
+      }
     }
   }
   return blocks
@@ -83,10 +95,18 @@ function patternMatches(pattern, path) {
 }
 
 function headersFor(path) {
+  // Cloudflare semantics: all matching rules apply in file order; duplicate
+  // names comma-join; `!Name` detaches the header accumulated so far.
   const out = {}
   for (const block of HEADER_BLOCKS) {
-    if (patternMatches(block.pattern, path)) {
-      for (const [name, value] of block.headers) out[name] = value
+    if (!patternMatches(block.pattern, path)) continue
+    for (const entry of block.headers) {
+      if (entry.detach) {
+        delete out[entry.detach.toLowerCase()]
+        continue
+      }
+      const key = entry.name.toLowerCase()
+      out[key] = out[key] ? `${out[key]}, ${entry.value}` : entry.value
     }
   }
   return out
@@ -124,6 +144,12 @@ const server = createServer((req, res) => {
   const filePath = join(DIST, safe)
   const headers = headersFor(path === '/index.html' ? '/' : path)
 
+  // Cloudflare parses these as configuration and never serves them.
+  if (path === '/_headers' || path === '/_redirects') {
+    send(res, 404, join(DIST, '404.html'), headersFor(path))
+    return
+  }
+
   if (filePath.startsWith(DIST) && existsSync(filePath) && statSync(filePath).isFile()) {
     send(res, 200, filePath, headers, req.headers.range)
     return
@@ -139,6 +165,12 @@ const server = createServer((req, res) => {
   send(res, 404, join(DIST, '404.html'), headersFor(path))
 })
 
-server.listen(PORT, () => {
-  console.log(`host-faithful server: http://localhost:${PORT} (dist-portfolio-demo)`)
+if (!existsSync(join(DIST, 'index.html'))) {
+  console.error('dist-portfolio-demo/ is missing or unbuilt — run `npm run build:portfolio-demo` first.')
+  process.exit(1)
+}
+
+const HOST = process.env.HOST ?? '127.0.0.1' // loopback by default
+server.listen(PORT, HOST, () => {
+  console.log(`host-faithful server: http://${HOST}:${PORT} (dist-portfolio-demo)`)
 })
