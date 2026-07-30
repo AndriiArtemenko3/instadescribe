@@ -95,7 +95,9 @@ test.describe('start and core loop', () => {
     // …actual playback is. Start it, then close.
     const video = dialog.locator('video')
     await video.click()
-    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused)).toBe(true)
+    await expect
+      .poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime > 0.05))
+      .toBe(true)
     await page.getByRole('button', { name: 'Done listening' }).click()
 
     await expect(page.getByText('Take a moment with it').first()).toBeVisible()
@@ -186,7 +188,9 @@ test.describe('single audio owner', () => {
     const dialog = page.getByRole('dialog', { name: 'Pre-rendered described example' })
     const described = dialog.locator('video')
     await described.click()
-    await expect.poll(() => described.evaluate((v: HTMLVideoElement) => !v.paused)).toBe(true)
+    await expect
+      .poll(() => described.evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime > 0.05))
+      .toBe(true)
     // Retain the exact element across close (blocker 5): it must be paused
     // and its currentTime must not advance after the dialog is dismissed.
     const handle = await described.elementHandle()
@@ -240,7 +244,7 @@ test.describe('embed and routing', () => {
     const dialog = page.getByRole('dialog', { name: 'Pre-rendered described example' })
     await page.getByRole('button', { name: 'Play the example' }).click()
     await expect
-      .poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => !v.paused))
+      .poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime > 0.05))
       .toBe(true)
     await page.getByRole('button', { name: 'Done listening' }).click()
     await page.getByRole('button', { name: 'Next step' }).click()
@@ -482,7 +486,7 @@ test.describe('keyboard-only completion', () => {
     await expect(page.getByRole('button', { name: 'Play the example' })).toBeFocused()
     await page.keyboard.press('Enter')
     await expect
-      .poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => !v.paused))
+      .poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime > 0.05))
       .toBe(true)
     await page.keyboard.press('Escape')
     await expect(page.getByRole('button', { name: 'Next step' })).toBeFocused()
@@ -623,7 +627,9 @@ test.describe('narrow fallback', () => {
     // Explicit narrow-video control + cleanup on exit (blocker 5).
     await page.getByRole('button', { name: 'Play the example' }).click()
     const video = page.locator('video')
-    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused)).toBe(true)
+    await expect
+      .poll(() => video.evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime > 0.05))
+      .toBe(true)
     const handle = await video.elementHandle()
     await page.getByRole('link', { name: 'Back to the intro' }).click()
     await expect(page.getByRole('button', { name: 'Start now' })).toBeVisible()

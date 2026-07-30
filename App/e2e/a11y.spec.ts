@@ -5,6 +5,10 @@ import { test, expect } from './fixtures'
 // routes and states. Any violation fails — and this suite runs in CI.
 
 async function scan(page: import('@playwright/test').Page, state: string) {
+  // Scan the rest state deterministically: park the pointer so a hover state
+  // left by a prior click isn't what gets measured (hover contrast is fixed
+  // and asserted separately in demo.css / captures).
+  await page.mouse.move(0, 0)
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze()
@@ -87,7 +91,7 @@ test('completion card', async ({ page }) => {
   const dialog = page.getByRole('dialog', { name: 'Pre-rendered described example' })
   await page.getByRole('button', { name: 'Play the example' }).click()
   await expect
-    .poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => !v.paused))
+    .poll(() => dialog.locator('video').evaluate((v: HTMLVideoElement) => !v.paused && v.currentTime > 0.05))
     .toBe(true)
   await page.getByRole('button', { name: 'Done listening' }).click()
   await page.getByRole('button', { name: 'Next step' }).click()

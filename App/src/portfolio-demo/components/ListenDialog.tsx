@@ -92,7 +92,9 @@ export function ListenDialog({ onClose, onPlaybackStarted, sceneTwoRemoved }: Li
             onClick={() => {
               const v = videoRef.current
               if (!v) return
-              if (v.paused) void v.play()
+              // Interruption of a pending play() by our own cleanup/pause is
+              // benign — but the promise must never reject unhandled.
+              if (v.paused) v.play().catch(() => {})
               else v.pause()
             }}
           >

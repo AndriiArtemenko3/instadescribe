@@ -186,7 +186,7 @@ export default function TextWalkthrough({ narrow, embed, eligibleWidth }: TextWa
               onClick={() => {
                 const v = exampleRef.current
                 if (!v) return
-                if (v.paused) void v.play()
+                if (v.paused) v.play().catch(() => {})
                 else v.pause()
               }}
             >
