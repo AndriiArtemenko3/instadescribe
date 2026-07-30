@@ -2,8 +2,9 @@
 
 Build source: branch `polish/instascribe-live-onboarding-v1`, base
 `88571e982c12148b002c4bf099964790ccbb99bb` (origin/main). Lockfile: `App/package-lock.json`,
-lockfileVersion 3 (only deliberate change on this branch: `@playwright/test` dev
-dependency). Build command: `npm run build:portfolio-demo`
+lockfileVersion 3. Deliberate direct dev-dependency additions on this branch:
+`@playwright/test` (browser suite) and `@axe-core/playwright` (accessibility scans) —
+nothing else. Build command: `npm run build:portfolio-demo`
 (`tsc -b && vite build --config vite.portfolio-demo.config.ts`; Vite 8, no source maps,
 dedicated entry `portfolio-demo.html` → `src/portfolio-demo/main.tsx`). Verification:
 `npm run verify:portfolio-demo` (forbidden-string audit, ≤ 21 MB budget, SHA-256 manifests);
@@ -44,7 +45,8 @@ so no unused application asset ships.
 ## Size budget (measured at delivery)
 
 - Deploy package total: **20.03 MB** of the 21 MB target (30 files; see
-  `DEPLOY_MANIFEST.sha256`).
+  `DEPLOY_MANIFEST.sha256` — the manifest lives only in docs/, so the deploy directory
+  contains no unmanifested file).
 - Intro payload before "Start now": HTML 0.81 kB + CSS 60.6 kB (11.9 kB gz) + JS 286.0 kB
   (91.2 kB gz) + 3 Geist woff2 (58.4 kB) — measured in-browser at **~161 KB transferred**;
   zero JSON or media requests (enforced by e2e).

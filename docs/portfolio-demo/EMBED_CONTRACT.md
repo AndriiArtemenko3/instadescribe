@@ -97,10 +97,21 @@ the final authority — verify once more there when it is eventually deployed.
   `frame-ancestors https://andriiartemenko.com https://www.andriiartemenko.com`.
   **No `X-Frame-Options`** — it would block the intended cross-origin portfolio iframe;
   `frame-ancestors` is the modern equivalent that permits exactly the portfolio.
-  Documented preview origins: none in production headers; for local previews
-  (`vite preview` on `localhost:4174`, dev server on `localhost:5175`) no CSP is served,
-  so local testing is unaffected.
+  Documented preview origins: none yet — the CSP `frame-ancestors` list and the exit
+  postMessage allowlist both support ONLY the production portfolio parents today.
+  **Preview-origin plan:** once the real demo and portfolio preview domains exist
+  (e.g. `https://<hash>.instascribe-demo.pages.dev` framed by
+  `https://<hash>.andriiartemenko-com.pages.dev`), add those EXACT origins (never
+  wildcards) to (1) `frame-ancestors` in `_headers` and (2) `PARENT_ORIGINS` in
+  `src/portfolio-demo/lib/embed.ts`, then run a two-origin verification on the real
+  hosts — production parent and preview parent — as an explicit release/integration
+  gate. Local previews (`serve-host` on `127.0.0.1:4174`, dev server on `:5175`) are
+  loopback-bound and serve no CSP in dev, so local testing is unaffected.
 - `_redirects` — the single SPA rewrite above.
 - `robots.txt` — `Disallow: /` for all agents.
-- Caching: hashed `/assets/*` immutable for 1 year; `/videos/*` and `/data/*` 24 h;
-  everything else 5 min.
+- Caching (Cloudflare applies EVERY matching `_headers` rule and comma-joins duplicate
+  names, so each path class declares Cache-Control exactly once): hashed `/assets/*`
+  immutable for 1 year; `/videos/*` and `/data/*` 24 h; the documents `/`, `/onboarding`,
+  `/404.html`, `/robots.txt`, `/favicon.svg` 5 min; unknown (404) paths carry no cache
+  directive. `_headers` and `_redirects` are configuration files — Cloudflare does not
+  serve them, and the host emulator returns genuine 404s for both.

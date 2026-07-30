@@ -369,4 +369,61 @@ frontend edit.
   origin, `/api/`, page error or unexpected console error). The deploy manifest is now
   genuinely verified against the committed copy (refresh requires `UPDATE_MANIFEST=1`).
 
+- **D25 (acceptance correction pass 2)** — all ten blockers of
+  `CLAUDE_FABLE_INSTASCRIBE_LIVE_ONBOARDING_CORRECTION_2.md`:
+  **(1)** One authoritative timing model (`lib/timing.ts`): usable silence is measured
+  from the REAL narration start (`scene.start + 0.25`) inside the curated gap containing
+  it and bounded by the scene end; "clear/placed/accepted" uses RAW transcript overlap
+  with a 1e-6 epsilon — the 0.5 s engine tolerance is display-only and no longer proves
+  anything. This kills the scene-9 @1.5× regression (old budget 3.02 s → 11 words ending
+  108.183 s, 0.163 s real overlap labelled clear; new usable window 2.77 s → 8 words
+  ending 107.38 s, raw overlap 0). Corrected numbers ripple everywhere (scene 5 usable is
+  7.75 s, not 8.0). An exhaustive vitest matrix asserts, for EVERY scene × every offered
+  speed: end inside the usable window, inside the scene window, raw overlap ≤ 1e-6, and
+  UI-status agreement; scene 2 stays unfixable at all speeds; scene 1 gains a legitimate
+  0.75×-only trim; scenes 3/4/7/8/9 are all provably trimmable raw-clear.
+  **(2)** Reason-aware unfixable copy: head-on wording only when dialogue truly speaks at
+  the line's first beat (scene 2, `timeToFirstDialogue = 0`); other unfixable cases
+  (scene 6, usable 1.07 s < 1.5 s minimum) say only what is proved. Both branches
+  e2e-tested.
+  **(3)** Contracted completion exit restored: the terminal card offers Explore (primary),
+  Restart, and Back-to-the-intro / Close-demo (embed, exact-origin postMessage) —
+  keyboard-tested in both modes.
+  **(4)** Focus restoration: the overlay's 450 ms delayed target-focus is skipped when
+  the action is already complete; a keyboard test waits 700 ms and asserts Next keeps
+  focus.
+  **(5)** Explicit media cleanup: the described video is paused and its bus claim cleared
+  on Done/×/Escape/backdrop/unmount and on `ended`; a regression retains the removed
+  element and asserts paused + frozen `currentTime`; the narrow fallback video gained the
+  same explicit Play/Pause control, bus claim, and unmount cleanup.
+  **(6)** Trim boundary cleanup: deterministic rollback of dangling function words and
+  comma-open endings (stoplist documented in `fitToGap.ts`; never invents content);
+  scene 5 and scene 9 outputs pinned verbatim at all four speeds ("A young woman races."
+  instead of "…a dragon-like."). The intro no longer implies the pre-rendered film
+  contains the visitor's edits; delivered described-captions are sentence-cased at
+  generation (fixtures untouched).
+  **(7)** Host fidelity: `_headers` rewritten so every path class declares Cache-Control
+  exactly once (Cloudflare applies all matching rules and comma-joins duplicates — the
+  old broad 5-minute rule would have joined with asset/media values); the emulator now
+  models matching+joining+`!` detachment, returns genuine 404s for `/_headers` and
+  `/_redirects`, refuses to start without a build, and binds to loopback; `404.html` is a
+  required deploy file; host tests assert the corrected semantics. Preview-origin plan
+  recorded in EMBED_CONTRACT (exact origins + two-origin test as a release gate; no
+  wildcards). Real Cloudflare preview verification remains an explicit deployment gate.
+  **(8)** CI/verification: the frontend job now builds the default app; the portfolio job
+  builds → verifies → browser-tests the SAME artifact (the Playwright webServer only
+  serves; it refuses to build); no unmanifested `manifest.sha256` is written into the
+  deploy dir; console/response allowances are scoped per-test via `observation.allow()`
+  and the suite globally fails unexpected same-origin 4xx/5xx and request failures
+  (browser-internal `net::ERR_ABORTED` media cancellations excluded by documented
+  rationale); ARTIFACT.md names both direct test dependencies.
+  **(9)** Accessibility: inactive scene rows use ≥4.5:1 inks on their tinted ground; the
+  shared Button's default-variant HOVER (white on brand-500 ≈ 3.3:1) is corrected
+  demo-scoped (hover darkens); rows carry hidden status names so colour edges/dots are
+  never the only signal; axe scans added for action-done, completion, fixture-error and
+  loaded-narrow states (10 scans total, all passing); focused described-dialog Play and
+  completion-exit states captured as visual evidence.
+  **(10)** The PR description is replaced with the current truthful scope; evidence is
+  bound to the committed HEAD with SHA-256 hashes in REVIEW.md.
+
 *(Further decisions/deviations appended as work proceeds.)*
