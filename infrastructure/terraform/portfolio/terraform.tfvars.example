@@ -1,0 +1,59 @@
+# Copy to a gitignored `portfolio.auto.tfvars` and replace every placeholder.
+# This file contains no account ID, email address, credential, secret or live
+# endpoint. The validations deliberately reject these placeholders.
+
+# The live value belongs only in the ignored, mode-600 local tfvars file.
+# The AWS provider refuses to operate if its caller resolves to another account.
+expected_aws_account_id = "REPLACE_WITH_12_DIGIT_ACCOUNT_ID"
+
+# Use `beta` only with a separate backend/state and distinct resource_suffix.
+environment = "portfolio"
+
+# Beta defaults to the canonical app origin; override only for an approved
+# preview domain with a matching Cognito callback.
+app_origin = "https://app.instadescribe.com"
+api_origin = "https://api.instadescribe.com"
+
+# Required only for `environment = "beta"`. Both certificates must cover the
+# configured origins; CloudFront certificates live in us-east-1.
+alb_certificate_arn        = null
+cloudfront_certificate_arn = null
+
+resource_suffix = "REPLACE"
+
+release_commit_sha = "REPLACE_WITH_FULL_LOWERCASE_40_HEX_COMMIT_SHA"
+
+# SHA-256 digest only. Never put the plaintext portfolio token in Terraform.
+portfolio_token_sha256 = "REPLACE"
+
+# Generate 32 random bytes outside the repository and encode them as exactly
+# 64 lowercase hex characters. Both values are sensitive and enter Terraform
+# state and AWS Secrets Manager. Normal state is active A + accepted [A].
+origin_verify_active_value    = "REPLACE_WITH_64_LOWERCASE_HEX_CHARACTERS"
+origin_verify_accepted_values = ["REPLACE_WITH_THE_SAME_64_LOWERCASE_HEX_CHARACTERS"]
+
+# Required owner-approved destination. Do not commit a personal address.
+budget_alert_email = "REPLACE_WITH_APPROVED_ALERT_RECIPIENT"
+
+# Both services stay off for the bootstrap/migration apply. Enable the API only
+# in a separately reviewed apply after the one-shot migration exits zero.
+api_desired_count    = 0
+worker_desired_count = 0
+
+# Beta-only staged Next rollout. First enable with count zero to create ECR,
+# push the release-SHA image, then warm one task while Vite remains active.
+# Change app_delivery_origin to "next" only after target health is proven.
+enable_next_app_runtime = false
+next_app_desired_count  = 0
+app_delivery_origin     = "vite_static"
+
+# False is the keyless fake-provider baseline. Set true only for the bounded
+# G12 plan after an OpenAI secret version has been added outside Terraform.
+enable_g12_openai = false
+
+# Beta dispatcher SSRF allowlist: exact operator-approved DNS names only.
+# Endpoint signing secrets are stored per endpoint and never enter tfvars/state.
+webhook_allowed_hosts = []
+# Keep the dedicated dispatcher off until the allowlist, one or more
+# out-of-band signing secrets and their database references are reviewed.
+webhook_dispatcher_desired_count = 0

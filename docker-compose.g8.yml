@@ -1,0 +1,13 @@
+# G8 acceptance override — applied ONLY by the G8 gate scripts (never by
+# plain `docker compose`, whose default build-from-source behavior stays
+# unchanged). Selects the EXACT freshly built, source-digest-bound API
+# image for both the api service and the one-shot migrate task, so the
+# memory test and smoke-local run the proven artifacts rather than an
+# implicitly rebuilt host-architecture image.
+services:
+  api:
+    image: ${INSTADESCRIBE_API_IMAGE:?the G8 override requires the exact API image}
+    platform: linux/amd64
+  migrate:
+    image: ${INSTADESCRIBE_API_IMAGE:?the G8 override requires the exact API image}
+    platform: linux/amd64
