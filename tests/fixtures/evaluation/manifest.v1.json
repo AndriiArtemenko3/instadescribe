@@ -1,0 +1,175 @@
+{
+  "schemaVersion": "instascribe-eval-manifest/1",
+  "frozenAt": "2026-08-08",
+  "notes": "G8 evaluation contract (ADR-0008 \u00a74, G8.1-clarified). G8 freezes 3-5 rights-cleared evaluation CASES; at G8, non-overlapping bounded windows from one verified rights-cleared source are the permitted safe minimum. They freeze the harness, provenance and rubric, NOT corpus diversity. Multiple distinct rights-cleared source clips are a v0.2 benchmark requirement and require owner/licence review before addition.",
+  "stageDisclosure": {
+    "realStages": [
+      "FFmpeg demux/extraction",
+      "voice-activity detection",
+      "faster-whisper ASR (baked offline weights)",
+      "S3-compatible storage, SQS delivery, PostgreSQL persistence (local)"
+    ],
+    "fakeStages": [
+      "vision-model scene description (deterministic fake provider; no paid call)"
+    ],
+    "preGenerated": [
+      "the committed demo data under App/public/data/sintel-blender-cc/ is the real pipeline's historical output and is NOT produced by these cases"
+    ],
+    "claimBoundary": "local fake-provider evaluation harness only; no real-provider quality, no real AWS, and no new human-study results are claimed"
+  },
+  "rubric": {
+    "protocol": "docs/evaluation-contract.md",
+    "scales": {
+      "groundednessScore": "integer 1-5 (1 = describes events not present; 5 = fully grounded in visible action)",
+      "usefulnessScore": "integer 1-5 (1 = unusable for a blind listener; 5 = clear, well-timed, sufficient)"
+    },
+    "record": [
+      "reviewer",
+      "caseId",
+      "timecode",
+      "groundednessScore",
+      "usefulnessScore",
+      "rationale",
+      "errorCategory"
+    ],
+    "errorTaxonomy": [
+      "hallucination",
+      "omission",
+      "timing_overrun",
+      "dialogue_collision",
+      "character_error",
+      "style_mismatch",
+      "other"
+    ]
+  },
+  "cases": [
+    {
+      "id": "sintel-v1-w1-opening",
+      "split": "evaluation",
+      "purpose": "dialogue-sparse establishing section: coverage and gap placement with minimal speech to dodge",
+      "sourceUri": "App/public/videos/sintel-blender-cc.mp4",
+      "sourceTitle": "Sintel (~120 s segment)",
+      "sourceOwner": "\u00a9 copyright Blender Foundation \u2014 durian.blender.org",
+      "licenceName": "Creative Commons Attribution 3.0 (CC BY 3.0)",
+      "licenceUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "sha256": "75de21cc8ed60ece2d43e0127db8449e4eef0ae44ca47a586791945de0e5648b",
+      "sizeBytes": 8940006,
+      "durationSecs": 120.0,
+      "window": {
+        "startSecs": 0.0,
+        "endSecs": 30.0
+      },
+      "expectations": {
+        "requiredArtifacts": [
+          "scenes.json",
+          "entities.json",
+          "audio_events.json",
+          "ad_placement_gaps.json",
+          "transcript.json"
+        ],
+        "sceneIdPattern": "scene_[1-9][0-9]*",
+        "sceneIdMatch": "fullmatch",
+        "timeBounds": "0 <= start < end for every scene; bounds finite standard JSON numbers",
+        "structuredOutput": "strict JSON only; NaN/Infinity rejected; scene_count equals the scenes.json length",
+        "dialogueGapRule": "every active description must fit an ad_placement_gaps window without overlapping detected dialogue",
+        "assembly": "artifact set complete and attempt-scoped; source object version-pinned"
+      }
+    },
+    {
+      "id": "sintel-v1-w2-dialogue",
+      "split": "evaluation",
+      "purpose": "first dialogue exchange: gap detection and description timing against real speech",
+      "sourceUri": "App/public/videos/sintel-blender-cc.mp4",
+      "sourceTitle": "Sintel (~120 s segment)",
+      "sourceOwner": "\u00a9 copyright Blender Foundation \u2014 durian.blender.org",
+      "licenceName": "Creative Commons Attribution 3.0 (CC BY 3.0)",
+      "licenceUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "sha256": "75de21cc8ed60ece2d43e0127db8449e4eef0ae44ca47a586791945de0e5648b",
+      "sizeBytes": 8940006,
+      "durationSecs": 120.0,
+      "window": {
+        "startSecs": 30.0,
+        "endSecs": 60.0
+      },
+      "expectations": {
+        "requiredArtifacts": [
+          "scenes.json",
+          "entities.json",
+          "audio_events.json",
+          "ad_placement_gaps.json",
+          "transcript.json"
+        ],
+        "sceneIdPattern": "scene_[1-9][0-9]*",
+        "sceneIdMatch": "fullmatch",
+        "timeBounds": "0 <= start < end for every scene; bounds finite standard JSON numbers",
+        "structuredOutput": "strict JSON only; NaN/Infinity rejected; scene_count equals the scenes.json length",
+        "dialogueGapRule": "every active description must fit an ad_placement_gaps window without overlapping detected dialogue; transcript must contain the window's speech",
+        "assembly": "artifact set complete and attempt-scoped; source object version-pinned"
+      }
+    },
+    {
+      "id": "sintel-v1-w3-action",
+      "split": "evaluation",
+      "purpose": "action-dense mid-section: audio-event density and scene segmentation under motion",
+      "sourceUri": "App/public/videos/sintel-blender-cc.mp4",
+      "sourceTitle": "Sintel (~120 s segment)",
+      "sourceOwner": "\u00a9 copyright Blender Foundation \u2014 durian.blender.org",
+      "licenceName": "Creative Commons Attribution 3.0 (CC BY 3.0)",
+      "licenceUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "sha256": "75de21cc8ed60ece2d43e0127db8449e4eef0ae44ca47a586791945de0e5648b",
+      "sizeBytes": 8940006,
+      "durationSecs": 120.0,
+      "window": {
+        "startSecs": 60.0,
+        "endSecs": 90.0
+      },
+      "expectations": {
+        "requiredArtifacts": [
+          "scenes.json",
+          "entities.json",
+          "audio_events.json",
+          "ad_placement_gaps.json",
+          "transcript.json"
+        ],
+        "sceneIdPattern": "scene_[1-9][0-9]*",
+        "sceneIdMatch": "fullmatch",
+        "timeBounds": "0 <= start < end for every scene; bounds finite standard JSON numbers",
+        "structuredOutput": "strict JSON only; NaN/Infinity rejected; scene_count equals the scenes.json length",
+        "dialogueGapRule": "every active description must fit an ad_placement_gaps window without overlapping detected dialogue",
+        "assembly": "artifact set complete and attempt-scoped; source object version-pinned"
+      }
+    },
+    {
+      "id": "sintel-v1-w4-resolution",
+      "split": "evaluation",
+      "purpose": "tail/resolution: end-of-source boundary handling and final-scene assembly",
+      "sourceUri": "App/public/videos/sintel-blender-cc.mp4",
+      "sourceTitle": "Sintel (~120 s segment)",
+      "sourceOwner": "\u00a9 copyright Blender Foundation \u2014 durian.blender.org",
+      "licenceName": "Creative Commons Attribution 3.0 (CC BY 3.0)",
+      "licenceUrl": "https://creativecommons.org/licenses/by/3.0/",
+      "sha256": "75de21cc8ed60ece2d43e0127db8449e4eef0ae44ca47a586791945de0e5648b",
+      "sizeBytes": 8940006,
+      "durationSecs": 120.0,
+      "window": {
+        "startSecs": 90.0,
+        "endSecs": 120.0
+      },
+      "expectations": {
+        "requiredArtifacts": [
+          "scenes.json",
+          "entities.json",
+          "audio_events.json",
+          "ad_placement_gaps.json",
+          "transcript.json"
+        ],
+        "sceneIdPattern": "scene_[1-9][0-9]*",
+        "sceneIdMatch": "fullmatch",
+        "timeBounds": "0 <= start < end for every scene; final scene end must not exceed the source duration",
+        "structuredOutput": "strict JSON only; NaN/Infinity rejected; scene_count equals the scenes.json length",
+        "dialogueGapRule": "every active description must fit an ad_placement_gaps window without overlapping detected dialogue",
+        "assembly": "artifact set complete and attempt-scoped; source object version-pinned"
+      }
+    }
+  ]
+}

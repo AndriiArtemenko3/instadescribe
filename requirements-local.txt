@@ -1,4 +1,4 @@
-# Fully local, keyless backend (INSTASCRIBE_BACKEND=local). Optional — the
+# Fully local, keyless backend (INSTADESCRIBE_BACKEND=local). Optional — the
 # default OpenAI backend needs none of this.
 #
 # Vision + text run on Ollama, which speaks the OpenAI-compatible API the base

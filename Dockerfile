@@ -1,10 +1,10 @@
-# InstaScribe study backend — single-origin deploy.
+# InstaDescribe study backend — single-origin deploy.
 # Serves the built SPA (App/dist), per-session data (App/public/data),
 # videos (App/public/videos) and the /api endpoints from one process.
 #
 # Build the frontend FIRST (see build-study.sh), then:
-#   docker build -t instascribe-study .
-#   docker run -p 8765:8765 -e OPENAI_API_KEY=sk-... -e STUDY_CORS_ORIGINS="*" instascribe-study
+#   docker build -t instadescribe-study .
+#   docker run -p 8765:8765 -e OPENAI_API_KEY=sk-... -e STUDY_CORS_ORIGINS="*" instadescribe-study
 FROM python:3.12-slim
 
 # ffmpeg is required for the TTS mix / eyes-closed preview render.

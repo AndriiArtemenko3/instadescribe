@@ -1,12 +1,22 @@
 """Tests for the model-provider seam. Exercises the factory's backend selection
 and the fake backend end to end — no API key, no network, no heavy deps."""
 
+import json
+import shutil
+import subprocess
+
 import pytest
 from providers import Frame, get_text_provider, get_tts_provider, get_vision_provider
 from providers.fake_provider import FakeTextProvider, FakeTTSProvider, FakeVisionProvider
 from schemas import SCENE_SCHEMA
 
-_ENV_KEYS = ("INSTASCRIBE_BACKEND", "VISION_PROVIDER", "TEXT_PROVIDER", "TTS_PROVIDER")
+_ENV_KEYS = (
+    "INSTADESCRIBE_BACKEND",
+    "INSTASCRIBE_BACKEND",  # temporary v0.1 compatibility alias
+    "VISION_PROVIDER",
+    "TEXT_PROVIDER",
+    "TTS_PROVIDER",
+)
 
 
 @pytest.fixture
@@ -26,28 +36,41 @@ def test_default_backend_is_openai(clean_env):
 
 
 def test_fake_backend_selected_for_all_capabilities(clean_env):
-    clean_env.setenv("INSTASCRIBE_BACKEND", "fake")
+    clean_env.setenv("INSTADESCRIBE_BACKEND", "fake")
     assert isinstance(get_vision_provider(), FakeVisionProvider)
     assert isinstance(get_text_provider(), FakeTextProvider)
     assert isinstance(get_tts_provider(), FakeTTSProvider)
 
 
+def test_legacy_backend_alias_is_warned_and_conflicts_fail_closed(clean_env):
+    from environment import LegacyEnvironmentWarning
+
+    clean_env.setenv("INSTASCRIBE_BACKEND", "fake")
+    with pytest.warns(LegacyEnvironmentWarning):
+        assert isinstance(get_vision_provider(), FakeVisionProvider)
+
+    clean_env.setenv("INSTADESCRIBE_BACKEND", "openai")
+    with pytest.raises(RuntimeError) as caught:
+        get_vision_provider()
+    assert "fake" not in str(caught.value) and "openai" not in str(caught.value)
+
+
 def test_local_alias_maps_to_ollama_and_kokoro(clean_env):
-    clean_env.setenv("INSTASCRIBE_BACKEND", "local")
+    clean_env.setenv("INSTADESCRIBE_BACKEND", "local")
     assert get_vision_provider().name == "ollama"
     assert get_text_provider().name == "ollama"
     assert get_tts_provider().name == "kokoro"
 
 
 def test_per_capability_override_beats_global(clean_env):
-    clean_env.setenv("INSTASCRIBE_BACKEND", "openai")
+    clean_env.setenv("INSTADESCRIBE_BACKEND", "openai")
     clean_env.setenv("VISION_PROVIDER", "fake")
     assert get_vision_provider().name == "fake"
     assert get_text_provider().name == "openai"  # untouched by the vision override
 
 
 def test_anthropic_backend_selected(clean_env):
-    clean_env.setenv("INSTASCRIBE_BACKEND", "anthropic")
+    clean_env.setenv("INSTADESCRIBE_BACKEND", "anthropic")
     assert get_vision_provider().name == "anthropic"
     assert get_text_provider().name == "anthropic"
     # Anthropic has no TTS of its own; it falls back to OpenAI TTS.
@@ -55,7 +78,7 @@ def test_anthropic_backend_selected(clean_env):
 
 
 def test_gemini_backend_selected(clean_env):
-    clean_env.setenv("INSTASCRIBE_BACKEND", "gemini")
+    clean_env.setenv("INSTADESCRIBE_BACKEND", "gemini")
     assert get_vision_provider().name == "gemini"
     assert get_text_provider().name == "gemini"
     assert get_tts_provider().name == "openai"
@@ -125,6 +148,9 @@ def test_fake_vision_output_conforms_to_scene_schema_shape():
     scene_required = SCENE_SCHEMA["schema"]["properties"]["scenes"]["items"]["required"]
     assert all(k in data["scenes"][0] for k in scene_required)
     assert data["memory_updates"] == {"seen_character_ids": [], "new_characters": []}
+    # G5.1: real providers never emit zero-length scenes; the placeholder
+    # geometry must match (the worker's artifact contract enforces end > start).
+    assert all(s["end"] > s["start"] for s in data["scenes"])
 
 
 def test_fake_text_respects_word_budget():
@@ -139,7 +165,46 @@ def test_fake_text_respects_word_budget():
     assert out.model == "fake"
 
 
-def test_fake_tts_writes_a_file(tmp_path):
-    out = tmp_path / "line.mp3"
-    FakeTTSProvider().synthesize(text="hello", voice="onyx", out_path=out)
-    assert out.exists()
+@pytest.mark.skipif(
+    shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+    reason="ffmpeg/ffprobe missing",
+)
+def test_fake_tts_writes_normalisable_valid_mp3_without_app_fixture(tmp_path):
+    from tts_render import normalise_audio
+
+    first = tmp_path / "first.mp3"
+    second = tmp_path / "second.mp3"
+    FakeTTSProvider().synthesize(text="A door opens.", voice="onyx", out_path=first)
+    FakeTTSProvider().synthesize(text="A door opens.", voice="nova", out_path=second)
+
+    def probe(path):
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=codec_name:format=duration",
+                "-of",
+                "json",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return json.loads(result.stdout)
+
+    first_probe = probe(first)
+    second_probe = probe(second)
+    assert first.stat().st_size > 0
+    assert first_probe["streams"][0]["codec_name"] == "mp3"
+    assert float(first_probe["format"]["duration"]) > 0
+    assert first_probe["format"]["duration"] == second_probe["format"]["duration"]
+    assert first.read_bytes() == second.read_bytes()
+
+    normalised = normalise_audio(first, tmp_path / "normalised.mp3")
+    assert normalised.stat().st_size > 0
+    assert probe(normalised)["streams"][0]["codec_name"] == "mp3"

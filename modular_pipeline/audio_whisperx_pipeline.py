@@ -42,13 +42,28 @@ _LOG = logging.getLogger(__name__)
 # Configuration constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_CACHE_DIR = Path.home() / ".cache" / "instascribe"
+_CANONICAL_CACHE_DIR = Path.home() / ".cache" / "instadescribe"
+_LEGACY_CACHE_DIR = Path.home() / ".cache" / "instascribe"
+# Reuse already-downloaded v0.1 weights, but all fresh installations use the
+# canonical product namespace.
+DEFAULT_CACHE_DIR = (
+    _LEGACY_CACHE_DIR
+    if _LEGACY_CACHE_DIR.exists() and not _CANONICAL_CACHE_DIR.exists()
+    else _CANONICAL_CACHE_DIR
+)
 WHISPER_MODEL_SIZE = "medium"
 WHISPER_LANGUAGE = os.environ.get("JOB_WHISPER_LANGUAGE") or None  # None → auto-detect
 VAD_THRESHOLD = 0.500  # silero-vad onset probability threshold
 MIN_SILENCE_MS = 300  # min silence duration (ms) between speech spans
 MIN_AD_GAP_SECONDS = 2.0
 SAMPLE_RATE = 16000
+
+_FASTER_WHISPER_WORD_ALIGNMENT_INDEX_ERROR = (
+    "boolean index did not match indexed array along dimension 0; "
+    "dimension is 0 but corresponding boolean dimension is 1"
+)
+_TRANSCRIPTION_ALIGNMENT_FALLBACK_MARKER = "INSTADESCRIBE_WORD_ALIGNMENT_FALLBACK"
+_TRANSCRIPTION_STDERR_LIMIT = 2000
 
 # Module-level word-event cache: populated by _run_pipeline; consumed by
 # calculate_ad_gaps so that gap precision is word-level, not span-level.
@@ -342,6 +357,71 @@ def _run_transcription(
     return raw_segments
 
 
+def _transcription_subprocess_script() -> str:
+    """Return the isolated faster-whisper runner used by the subprocess."""
+    return textwrap.dedent(f"""\
+        import sys, json
+        from faster_whisper import WhisperModel
+
+        KNOWN_WORD_ALIGNMENT_INDEX_ERROR = {_FASTER_WHISPER_WORD_ALIGNMENT_INDEX_ERROR!r}
+        ALIGNMENT_FALLBACK_MARKER = {_TRANSCRIPTION_ALIGNMENT_FALLBACK_MARKER!r}
+
+        wav_path, device, cache_dir, model_size, compute_type, language_arg = sys.argv[1:]
+        language = None if language_arg == "None" else language_arg
+
+        model = WhisperModel(
+            model_size, device=device, compute_type=compute_type,
+            cpu_threads=4, download_root=cache_dir,
+        )
+        def transcribe(word_timestamps):
+            segments_gen, _info = model.transcribe(
+                wav_path, language=language, beam_size=1,
+                word_timestamps=word_timestamps, vad_filter=False,
+            )
+
+            results = []
+            for seg in segments_gen:
+                seg_start = float(seg.start)
+                seg_end   = float(seg.end)
+                seg_text  = (seg.text or "").strip()
+                if seg.words:
+                    words = [
+                        {{"word": w.word, "start": float(w.start), "end": float(w.end)}}
+                        for w in seg.words
+                    ]
+                else:
+                    tokens = seg_text.split()
+                    if tokens:
+                        duration = seg_end - seg_start
+                        step = duration / len(tokens)
+                        words = [
+                            {{
+                                "word":  t,
+                                "start": round(seg_start + i * step, 3),
+                                "end":   round(seg_start + (i + 1) * step, 3),
+                            }}
+                            for i, t in enumerate(tokens)
+                        ]
+                    else:
+                        words = []
+                results.append({{
+                    "start": seg_start, "end": seg_end,
+                    "text": seg_text, "words": words,
+                }})
+            return results
+
+        try:
+            results = transcribe(word_timestamps=True)
+        except IndexError as exc:
+            if str(exc) != KNOWN_WORD_ALIGNMENT_INDEX_ERROR:
+                raise
+            print(ALIGNMENT_FALLBACK_MARKER, file=sys.stderr)
+            results = transcribe(word_timestamps=False)
+
+        print(json.dumps(results))
+    """)
+
+
 def _run_transcription_subprocess(
     wav_path: Path,
     device: str,
@@ -355,54 +435,7 @@ def _run_transcription_subprocess(
     Writes a small Python script to a temp file, runs it with sys.executable,
     reads JSON from stdout, cleans up.
     """
-    script = textwrap.dedent("""\
-        import sys, json
-        from faster_whisper import WhisperModel
-
-        wav_path, device, cache_dir, model_size, compute_type, language_arg = sys.argv[1:]
-        language = None if language_arg == "None" else language_arg
-
-        model = WhisperModel(
-            model_size, device=device, compute_type=compute_type,
-            cpu_threads=4, download_root=cache_dir,
-        )
-        segments_gen, info = model.transcribe(
-            wav_path, language=language, beam_size=1,
-            word_timestamps=True, vad_filter=False,
-        )
-
-        results = []
-        for seg in segments_gen:
-            seg_start = float(seg.start)
-            seg_end   = float(seg.end)
-            seg_text  = (seg.text or "").strip()
-            if seg.words:
-                words = [
-                    {"word": w.word, "start": float(w.start), "end": float(w.end)}
-                    for w in seg.words
-                ]
-            else:
-                tokens = seg_text.split()
-                if tokens:
-                    duration = seg_end - seg_start
-                    step = duration / len(tokens)
-                    words = [
-                        {
-                            "word":  t,
-                            "start": round(seg_start + i * step, 3),
-                            "end":   round(seg_start + (i + 1) * step, 3),
-                        }
-                        for i, t in enumerate(tokens)
-                    ]
-                else:
-                    words = []
-            results.append({
-                "start": seg_start, "end": seg_end,
-                "text": seg_text, "words": words,
-            })
-
-        print(json.dumps(results))
-    """)
+    script = _transcription_subprocess_script()
 
     tmp = tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False)
     tmp.write(script)
@@ -432,14 +465,34 @@ def _run_transcription_subprocess(
         script_path.unlink(missing_ok=True)
 
     if result.returncode != 0:
-        stderr_text = result.stderr.decode(errors="replace")
+        stderr_text = _bounded_transcription_stderr(result.stderr)
         raise RuntimeError(
-            f"Transcription subprocess failed (exit {result.returncode}):\n{stderr_text[:500]}"
+            f"Transcription subprocess failed (exit {result.returncode}):\n{stderr_text}"
+        )
+
+    if _TRANSCRIPTION_ALIGNMENT_FALLBACK_MARKER.encode() in result.stderr:
+        _LOG.warning(
+            "Stage 2+3: faster-whisper word alignment failed; "
+            "used evenly distributed word timestamps"
         )
 
     raw_segments = json.loads(result.stdout.decode())
     _LOG.info("Stage 2+3: %d segments transcribed (subprocess)", len(raw_segments))
     return raw_segments
+
+
+def _bounded_transcription_stderr(stderr: bytes) -> str:
+    """Bound subprocess stderr while retaining its terminal exception."""
+    text = stderr.decode(errors="replace").strip()
+    if not text:
+        return "<no stderr output>"
+    if len(text) <= _TRANSCRIPTION_STDERR_LIMIT:
+        return text
+
+    marker = "\n...[stderr truncated; terminal output follows]...\n"
+    head_size = 400
+    tail_size = _TRANSCRIPTION_STDERR_LIMIT - head_size - len(marker)
+    return f"{text[:head_size]}{marker}{text[-tail_size:]}"
 
 
 # ---------------------------------------------------------------------------
