@@ -5,7 +5,8 @@ description for every scene with AI, lets a person edit and approve each one, an
 mixes the spoken description into the video's natural gaps between dialogue.
 
 [![CI](https://github.com/AndriiArtemenko3/InstaScribe_Video_Description_Pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/AndriiArtemenko3/InstaScribe_Video_Description_Pipeline/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Core: BUSL-1.1](https://img.shields.io/badge/core-BUSL--1.1-orange.svg)](./LICENSE)
+[![SDK / CLI: MIT](https://img.shields.io/badge/SDK%20%2F%20CLI-MIT-blue.svg)](./LICENSING.md)
 
 > Tested with 10 participants: drafts rated accurate (4.4/5) and useful (4.2/5),
 > and trusted enough to edit rather than rewrite (4.0/5).
@@ -153,6 +154,10 @@ The bundled demo clip is **Sintel** — © Blender Foundation,
 [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). Full attribution:
 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
-## Licence
+## License
 
-[MIT](./LICENSE)
+The product core is source-available under [BUSL-1.1](./LICENSE). The TypeScript
+SDK and Node CLI are separately open source under MIT. Earlier versions already
+published under MIT remain MIT. See [LICENSING.md](./LICENSING.md) for the exact
+scope and [COMMERCIAL_LICENSE.md](./COMMERCIAL_LICENSE.md) for production-use
+licensing.
