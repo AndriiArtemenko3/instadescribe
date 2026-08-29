@@ -3,6 +3,8 @@
 // folder plus an entry here, no component changes. The picker, the demo project
 // seeding, and (later) the per-clip guided steps all derive from this list.
 
+import type { Project } from '@/types'
+
 export type LengthTier = 'short' | 'medium' | 'long'
 export type Category = 'educational' | 'entertainment' | 'other'
 export type Difficulty = 'beginner' | 'intermediate' | 'advanced'
@@ -164,6 +166,46 @@ export const TUTORIALS: Tutorial[] = [
 
 export const getTutorial = (id: string): Tutorial | undefined =>
   TUTORIALS.find((t) => t.id === id)
+
+export const getAvailableTutorial = (id: string): Tutorial | undefined => {
+  const tutorial = getTutorial(id)
+  return tutorial?.status === 'available' &&
+    tutorial.durationSecs !== undefined &&
+    tutorial.sceneCount !== undefined &&
+    !!tutorial.videoFile &&
+    !!tutorial.dataPath
+    ? tutorial
+    : undefined
+}
+
+export const isAvailableTutorialId = (id: string): boolean =>
+  getAvailableTutorial(id) !== undefined
+
+/** Build the browser-only project for one baked tutorial fixture. */
+export function tutorialProject(tutorial: Tutorial): Project {
+  if (
+    tutorial.status !== 'available' ||
+    tutorial.durationSecs === undefined ||
+    tutorial.sceneCount === undefined ||
+    !tutorial.videoFile ||
+    !tutorial.dataPath
+  ) {
+    throw new Error(`Tutorial fixture is incomplete: ${tutorial.id}`)
+  }
+
+  return {
+    id: tutorial.id,
+    name: tutorial.title,
+    status: 'ready',
+    createdAt: new Date().toISOString(),
+    durationSecs: tutorial.durationSecs,
+    sceneCount: tutorial.sceneCount,
+    videoFile: tutorial.videoFile,
+    dataPath: tutorial.dataPath,
+    posterUrl: tutorial.posterUrl,
+    posterAvifUrl: tutorial.posterAvifUrl,
+  }
+}
 
 export const tutorialAt = (length: LengthTier, category: Category): Tutorial | undefined =>
   TUTORIALS.find((t) => t.lengthTier === length && t.category === category)

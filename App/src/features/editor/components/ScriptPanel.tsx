@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { getSceneStatus } from '@/types'
 import { previewTts, smartFillScene, patchScene, type VoiceId } from '@/lib/api'
 import type { Scene, Entity, SceneStatus } from '@/types'
+import type { CloudSceneReviewStatus } from '@/lib/cloudApi'
 import { canSmartFill, type SceneCollision } from '@/lib/collisions'
 import { RightPanelTabs, type RightPanelTab } from './RightPanelTabs'
 
@@ -37,6 +38,20 @@ const VOICES: { value: VoiceId; label: string }[] = [
 
 const SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5]
 
+const REVIEW_LABEL: Record<CloudSceneReviewStatus, string> = {
+  generated: 'Generated',
+  edited: 'Edited',
+  approved: 'Approved',
+  rejected: 'Rejected',
+}
+
+const REVIEW_STYLE: Record<CloudSceneReviewStatus, string> = {
+  generated: 'bg-neutral-150 text-neutral-500',
+  edited: 'bg-warning-50 text-warning-400',
+  approved: 'bg-success-50 text-success-400',
+  rejected: 'bg-danger-50 text-danger-400',
+}
+
 interface ScriptPanelProps {
   projectId: string
   scene: Scene | null
@@ -54,6 +69,25 @@ interface ScriptPanelProps {
   onSpeedChange: (sceneId: number, speed: number) => void
   onLockedChange: (sceneId: number, locked: boolean) => void
   onRenameRequest: (characterId: string, currentName: string) => void
+  /** Cloud mode keeps legacy-only mutations fenced. A supplied preview
+      callback is the sole authenticated cloud preview seam. */
+  cloudDeferred?: boolean
+  onCloudPreview?: (
+    sceneId: string,
+    text: string,
+    voice: VoiceId,
+    speed: number,
+    signal: AbortSignal,
+  ) => Promise<Blob>
+  cloudReviewEnabled?: boolean
+  cloudReviewStatus?: CloudSceneReviewStatus
+  cloudReviewLoading?: boolean
+  cloudReviewUnavailable?: boolean
+  cloudReviewedAt?: string | null
+  cloudReviewSaving?: boolean
+  cloudHasUnsavedDraft?: boolean
+  onCloudReview?: (sceneId: number, status: 'approved' | 'rejected') => void
+  readOnly?: boolean
 }
 
 export function ScriptPanel({
@@ -73,9 +107,21 @@ export function ScriptPanel({
   onSpeedChange,
   onLockedChange,
   onRenameRequest,
+  cloudDeferred = false,
+  onCloudPreview,
+  cloudReviewEnabled = false,
+  cloudReviewStatus,
+  cloudReviewLoading = false,
+  cloudReviewUnavailable = false,
+  cloudReviewedAt,
+  cloudReviewSaving = false,
+  cloudHasUnsavedDraft = false,
+  onCloudReview,
+  readOnly = false,
 }: ScriptPanelProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const blobUrlRef = useRef<string | null>(null)
+  const previewAbortRef = useRef<AbortController | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [hasLoaded, setHasLoaded] = useState(false)
@@ -84,6 +130,8 @@ export function ScriptPanel({
   const [smartFillNote, setSmartFillNote] = useState<string | null>(null)
 
   function resetPreview() {
+    previewAbortRef.current?.abort()
+    previewAbortRef.current = null
     const a = audioRef.current
     if (a) {
       a.onended = null
@@ -97,6 +145,7 @@ export function ScriptPanel({
     }
     setIsPlaying(false)
     setHasLoaded(false)
+    setIsLoading(false)
   }
 
   useEffect(() => {
@@ -105,11 +154,15 @@ export function ScriptPanel({
 
   // Drop any loaded audio when the scene / voice / speed / text changes so the
   // next click re-renders with the new parameters instead of resuming stale audio.
-  const previewKey = `${scene?.id ?? ''}::${scene?.text ?? ''}::${scene?.voiceId ?? ''}::${scene?.voiceSpeed ?? ''}`
+  const previewKey = `${scene?.sceneKey ?? ''}::${scene?.text ?? ''}::${scene?.voiceId ?? ''}::${scene?.voiceSpeed ?? ''}`
   useEffect(() => {
     resetPreview()
     setPreviewError(null)
   }, [previewKey])
+
+  useEffect(() => {
+    if (readOnly) resetPreview()
+  }, [readOnly])
 
   if (!scene) {
     return (
@@ -159,8 +212,13 @@ export function ScriptPanel({
 
     setIsLoading(true)
     setPreviewError(null)
+    const controller = new AbortController()
+    previewAbortRef.current = controller
     try {
-      const blob = await previewTts(projectId, scene.sceneNumber, scene.text, voice, speed)
+      const blob = onCloudPreview
+        ? await onCloudPreview(scene.sceneKey, scene.text, voice, speed, controller.signal)
+        : await previewTts(projectId, scene.sceneNumber, scene.text, voice, speed)
+      if (controller.signal.aborted || previewAbortRef.current !== controller) return
       const url = URL.createObjectURL(blob)
       blobUrlRef.current = url
       const audio = new Audio(url)
@@ -174,9 +232,13 @@ export function ScriptPanel({
       await audio.play()
       setIsPlaying(true)
     } catch (err) {
+      if (controller.signal.aborted) return
       setPreviewError(err instanceof Error ? err.message : String(err))
     } finally {
-      setIsLoading(false)
+      if (previewAbortRef.current === controller) {
+        previewAbortRef.current = null
+        setIsLoading(false)
+      }
     }
   }
 
@@ -228,6 +290,7 @@ export function ScriptPanel({
 
         <button
           onClick={() => onLockedChange(scene.id, !locked)}
+          disabled={readOnly}
           className="rounded p-1 text-neutral-400 hover:bg-neutral-150 hover:text-neutral-700 transition-colors"
           title={locked ? 'Locked' : 'Unlocked'}
         >
@@ -244,10 +307,11 @@ export function ScriptPanel({
             <label htmlFor="ad-text" className="text-xs font-medium text-neutral-500">Audio Description</label>
             <div className="flex items-center gap-1">
               <button
-                onClick={handleSmartFill}
-                disabled={isSmartFilling || !scene.text.trim() || locked || !fillable}
+                onClick={cloudDeferred ? undefined : handleSmartFill}
+                disabled={readOnly || cloudDeferred || isSmartFilling || !scene.text.trim() || locked || !fillable}
+                aria-describedby={cloudDeferred ? 'script-deferred-note' : undefined}
                 className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-brand-500 hover:bg-brand-50 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-                title={fillTitle}
+                title={cloudDeferred ? undefined : fillTitle}
               >
                 {isSmartFilling
                   ? <Loader2 size={12} className="animate-spin" />
@@ -255,10 +319,11 @@ export function ScriptPanel({
                 Smart Fill
               </button>
               <button
-                onClick={handlePreviewToggle}
-                disabled={isLoading || !scene.text.trim() || locked}
+                onClick={cloudDeferred && !onCloudPreview ? undefined : handlePreviewToggle}
+                disabled={readOnly || (cloudDeferred && !onCloudPreview) || isLoading || !scene.text.trim() || locked}
+                aria-describedby={cloudDeferred && !onCloudPreview ? 'script-deferred-note' : undefined}
                 className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium text-brand-500 hover:bg-brand-50 disabled:opacity-40 disabled:hover:bg-transparent transition-colors"
-                title={isPlaying ? 'Pause preview' : (hasLoaded ? 'Resume preview' : 'Preview narration')}
+                title={cloudDeferred && !onCloudPreview ? undefined : (isPlaying ? 'Pause preview' : (hasLoaded ? 'Resume preview' : 'Preview narration'))}
               >
                 {isLoading
                   ? <Loader2 size={12} className="animate-spin" />
@@ -269,13 +334,20 @@ export function ScriptPanel({
               </button>
             </div>
           </div>
+          {cloudDeferred && (
+            <p id="script-deferred-note" className="text-[11px] text-neutral-400">
+              {onCloudPreview
+                ? 'Smart Fill & character rename — coming later.'
+                : 'Smart Fill, Preview & character rename — coming later.'}
+            </p>
+          )}
           <textarea
             id="ad-text"
             name="ad-text"
             className="w-full resize-none rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-900 leading-relaxed outline-none focus:border-brand-400 transition-colors"
             rows={6}
             value={scene.text}
-            readOnly={locked}
+            readOnly={locked || readOnly}
             onChange={(e) => onAdChange(scene.id, e.target.value)}
             placeholder="Write the audio description for this scene…"
           />
@@ -294,9 +366,11 @@ export function ScriptPanel({
               {characters.map((ch) => (
                 <button
                   key={ch.id}
-                  onClick={() => onRenameRequest(ch.id, ch.name)}
-                  className="inline-flex items-center rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-500 hover:bg-brand-100 transition-colors"
-                  title="Click to rename"
+                  disabled={readOnly || cloudDeferred}
+                  aria-describedby={cloudDeferred ? 'script-deferred-note' : undefined}
+                  onClick={cloudDeferred ? undefined : () => onRenameRequest(ch.id, ch.name)}
+                  className="inline-flex items-center rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-500 hover:bg-brand-100 transition-colors disabled:opacity-40 disabled:hover:bg-brand-50"
+                  title={cloudDeferred ? undefined : 'Click to rename'}
                 >
                   {ch.name}
                 </button>
@@ -313,6 +387,7 @@ export function ScriptPanel({
               name="voice"
               className="flex-1 rounded-lg border border-neutral-200 bg-neutral-0 px-3 py-2 text-sm text-neutral-900 outline-none focus:border-brand-400"
               value={voice}
+              disabled={readOnly}
               onChange={(e) => onVoiceChange(scene.id, e.target.value as VoiceId)}
             >
               {VOICES.map((v) => (
@@ -325,6 +400,7 @@ export function ScriptPanel({
               aria-label="Speed"
               className="w-20 rounded-lg border border-neutral-200 bg-neutral-0 px-2 py-2 text-sm text-neutral-700 outline-none focus:border-brand-400"
               value={speed}
+              disabled={readOnly}
               onChange={(e) => onSpeedChange(scene.id, parseFloat(e.target.value))}
             >
               {SPEEDS.map((s) => (
@@ -336,12 +412,64 @@ export function ScriptPanel({
       </div>
 
       <div className="shrink-0 border-t border-neutral-200 p-4 space-y-2">
+        {cloudReviewEnabled && onCloudReview && !readOnly && (
+          <div className="mb-3 space-y-2 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-neutral-600">Human review</span>
+              <span className={cn(
+                'ml-auto rounded-full px-2 py-0.5 text-xs font-medium',
+                cloudReviewStatus
+                  ? REVIEW_STYLE[cloudReviewStatus]
+                  : cloudReviewUnavailable
+                    ? 'bg-danger-50 text-danger-400'
+                    : 'bg-neutral-150 text-neutral-500',
+              )}>
+                {cloudReviewStatus
+                  ? REVIEW_LABEL[cloudReviewStatus]
+                  : cloudReviewUnavailable
+                    ? 'Unavailable'
+                    : 'Loading…'}
+              </span>
+            </div>
+            {cloudReviewLoading && (
+              <p className="text-[11px] text-neutral-400">Loading the persisted review state…</p>
+            )}
+            {cloudReviewUnavailable && (
+              <p className="text-[11px] text-danger-400">Review state could not be loaded. Refresh before making a decision.</p>
+            )}
+            {cloudHasUnsavedDraft && (
+              <p className="text-[11px] text-warning-400">Unsaved session draft — review will save the visible text first.</p>
+            )}
+            {!cloudHasUnsavedDraft && cloudReviewedAt && (
+              <p className="text-[11px] text-neutral-400">Decision saved persistently.</p>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={cloudReviewSaving || cloudReviewLoading || cloudReviewUnavailable || !cloudReviewStatus || !scene.text.trim()}
+                onClick={() => onCloudReview(scene.id, 'rejected')}
+              >
+                Reject
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                disabled={cloudReviewSaving || cloudReviewLoading || cloudReviewUnavailable || !cloudReviewStatus || !scene.text.trim()}
+                onClick={() => onCloudReview(scene.id, 'approved')}
+              >
+                {cloudReviewSaving ? <Loader2 size={13} className="animate-spin" /> : 'Approve'}
+              </Button>
+            </div>
+          </div>
+        )}
         {scene.active ? (
           <Button
             variant="ghost"
             size="sm"
             className="w-full gap-1.5"
             onClick={() => onActiveToggle(scene.id)}
+            disabled={readOnly}
           >
             <CircleSlash size={14} strokeWidth={2} />
             Deactivate
@@ -351,13 +479,18 @@ export function ScriptPanel({
             variant="default"
             className="w-full gap-1.5"
             onClick={() => onActiveToggle(scene.id)}
+            disabled={readOnly}
           >
             <Check size={14} strokeWidth={2} />
             Activate scene
           </Button>
         )}
         {justApplied ? (
-          <div className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-success-400 bg-success-50 px-4 py-2 text-sm font-medium text-success-400">
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-success-400 bg-success-50 px-4 py-2 text-sm font-medium text-success-400"
+          >
             <Check size={15} strokeWidth={2.5} />
             Changes applied
           </div>
@@ -365,10 +498,12 @@ export function ScriptPanel({
           <Button
             variant={scene.active ? 'default' : 'outline'}
             className="w-full"
-            disabled={locked || !scene.active || !scene.text.trim()}
+            disabled={readOnly || locked || !scene.active || !scene.text.trim()}
             onClick={() => onApply(scene.id)}
           >
-            Apply to export
+            {/* Cloud (G7 B6): Apply persists the scene override — it must
+                not imply export, which is deferred. Legacy keeps its label. */}
+            {cloudDeferred ? 'Apply' : 'Apply to export'}
           </Button>
         )}
       </div>

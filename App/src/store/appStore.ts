@@ -1,8 +1,14 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
 import { DEMO_USER } from '@/features/auth/constants'
 import { PROJECTS } from '@/lib/projects'
 import { deleteProjectOnServer, patchProjectOnServer } from '@/lib/uploadApi'
+import { clearPortfolioToken } from '@/lib/portfolioToken'
+import { clearAllCloudDrafts } from '@/lib/persistence'
+import { isCloudSession } from '@/lib/cloudMode'
+import { CloudApiError, patchCloudProject } from '@/lib/cloudApi'
+import { fenceCloudProjectReconciliation } from '@/lib/cloudProjectReconciliationFence'
+import { queryClient } from '@/lib/queryClient'
 import type { User, Project } from '@/types'
 
 interface AppState {
@@ -21,6 +27,10 @@ interface AppState {
   toggleStar: (id: string) => Promise<void>
 }
 
+export function initialProjects(): Project[] {
+  return isCloudSession() ? [] : PROJECTS
+}
+
 export const useAppStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -28,7 +38,7 @@ export const useAppStore = create<AppState>()(
       isAuthenticated: false,
       sidebarCollapsed: false,
       isDemoMode: true,
-      projects: PROJECTS,
+      projects: initialProjects(),
       login: (email, password) => {
         if (email === DEMO_USER.email && password === DEMO_USER.password) {
           set({
@@ -39,7 +49,19 @@ export const useAppStore = create<AppState>()(
         }
         return false
       },
-      logout: () => set({ currentUser: null, isAuthenticated: false }),
+      logout: () => {
+        clearPortfolioToken() // the token never outlives the session (G7)
+        if (isCloudSession()) {
+          // G7.1 B: no cached editor access may survive logout — clear every
+          // TanStack query (manifests, signed URLs, artifact JSON), the
+          // cloud project metadata, and the session-scoped scene drafts.
+          queryClient.clear()
+          clearAllCloudDrafts()
+          set({ currentUser: null, isAuthenticated: false, projects: [] })
+          return
+        }
+        set({ currentUser: null, isAuthenticated: false })
+      },
       addProject: (project) => set((s) => ({ projects: [project, ...s.projects] })),
       updateProjectStatus: (id, status) =>
         set((s) => ({
@@ -47,15 +69,47 @@ export const useAppStore = create<AppState>()(
         })),
       updateProject: (id, patch) =>
         set((s) => ({
-          projects: s.projects.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+          projects: s.projects.map((p) => {
+            if (p.id !== id) return p
+            const next = { ...p, ...patch }
+            if (patch.projectVersion !== undefined) {
+              next.projectVersion = Math.max(p.projectVersion ?? 0, patch.projectVersion)
+            }
+            return next
+          }),
         })),
       deleteProject: async (id) => {
+        // Cloud deletion is intentionally not part of this tranche. Never
+        // fall through to the legacy filesystem route in a cloud session.
+        if (isCloudSession()) throw new CloudApiError('validation')
         await deleteProjectOnServer(id)
         set((s) => ({ projects: s.projects.filter((p) => p.id !== id) }))
       },
       renameProject: async (id, name) => {
         const trimmed = name.trim()
         if (!trimmed) return
+        if (isCloudSession()) {
+          const project = get().projects.find((candidate) => candidate.id === id)
+          if (!project || !project.projectVersion) throw new CloudApiError('service')
+          const response = await patchCloudProject(id, {
+            name: trimmed,
+            expectedVersion: project.projectVersion,
+          })
+          const current = get().projects.find((candidate) => candidate.id === id)
+          if (!current || response.version <= (current.projectVersion ?? 0)) return
+          // A jobs-list request that began before this accepted N→N+1 write
+          // must not overwrite the authoritative response with version N.
+          fenceCloudProjectReconciliation()
+          set((state) => ({
+            projects: state.projects.map((candidate) => candidate.id === id ? {
+              ...candidate,
+              name: response.name,
+              starred: response.starred,
+              projectVersion: response.version,
+            } : candidate),
+          }))
+          return
+        }
         await patchProjectOnServer(id, { name: trimmed })
         set((s) => ({
           projects: s.projects.map((p) => (p.id === id ? { ...p, name: trimmed } : p)),
@@ -65,6 +119,25 @@ export const useAppStore = create<AppState>()(
         const project = get().projects.find((p) => p.id === id)
         if (!project) return
         const next = !project.starred
+        if (isCloudSession()) {
+          if (!project.projectVersion) throw new CloudApiError('service')
+          const response = await patchCloudProject(id, {
+            starred: next,
+            expectedVersion: project.projectVersion,
+          })
+          const current = get().projects.find((candidate) => candidate.id === id)
+          if (!current || response.version <= (current.projectVersion ?? 0)) return
+          fenceCloudProjectReconciliation()
+          set((state) => ({
+            projects: state.projects.map((candidate) => candidate.id === id ? {
+              ...candidate,
+              name: response.name,
+              starred: response.starred,
+              projectVersion: response.version,
+            } : candidate),
+          }))
+          return
+        }
         await patchProjectOnServer(id, { starred: next })
         set((s) => ({
           projects: s.projects.map((p) => (p.id === id ? { ...p, starred: next } : p)),
@@ -72,7 +145,13 @@ export const useAppStore = create<AppState>()(
       },
     }),
     {
+      // Stable v0.1 key: Vite rollback and existing browser sessions must be
+      // readable throughout the route-by-route beta cutover.
       name: 'instascribe-app',
+      // G7.1 B: cloud-mode metadata is SESSION-scoped (a closed tab leaves
+      // no usable cloud session; server reconciliation is the recovery
+      // source). Legacy/demo/study keep durable localStorage persistence.
+      storage: createJSONStorage(() => (isCloudSession() ? sessionStorage : localStorage)),
       partialize: (state) => ({
         currentUser: state.currentUser,
         isAuthenticated: state.isAuthenticated,

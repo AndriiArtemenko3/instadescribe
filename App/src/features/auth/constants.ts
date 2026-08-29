@@ -1,5 +1,5 @@
 export const DEMO_USER = {
-  email: 'andrii@instascribe.app',
-  password: 'demo1234',
-  name: 'Andrii',
+  email: 'demo@example.test',
+  password: 'demo-only-not-a-real-password',
+  name: 'Demo User',
 }

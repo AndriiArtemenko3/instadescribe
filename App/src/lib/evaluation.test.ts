@@ -32,6 +32,7 @@ const fixture = JSON.parse(
 const scenes: Scene[] = fixture.scenes.map((s, i) => ({
   id: i + 1,
   sceneNumber: i + 1,
+  sceneKey: `scene_${i + 1}`,
   startSecs: s.start,
   endSecs: s.end,
   durationSecs: s.end - s.start,

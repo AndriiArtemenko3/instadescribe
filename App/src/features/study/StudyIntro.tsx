@@ -39,7 +39,7 @@ export default function StudyIntro() {
     <div className="min-h-svh bg-neutral-50 flex flex-col items-center justify-center px-4">
       <div className="flex items-center gap-2 mb-6">
         <Logo size={24} className="text-brand-400" />
-        <span className="text-base font-semibold text-neutral-900">InstaScribe</span>
+        <span className="text-base font-semibold text-neutral-900">InstaDescribe</span>
       </div>
 
       {error ? (
@@ -57,7 +57,7 @@ export default function StudyIntro() {
       ) : (
         <div className="flex items-center gap-2 text-sm text-neutral-500">
           <Loader2 size={16} className="animate-spin" aria-hidden />
-          Preparing your InstaScribe demo…
+          Preparing your InstaDescribe demo…
         </div>
       )}
     </div>

@@ -1,7 +1,9 @@
+'use client'
+
 import { useState, useEffect, useRef } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Download, Loader2, X, Headphones, Eye, GraduationCap, RotateCcw } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Download, Loader2, X, Headphones, Eye, GraduationCap, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -26,17 +28,113 @@ import {
   hasSeenTour, setTourSeen, resetTour,
   getCompletedTasks, markTaskComplete,
 } from '@/lib/session'
+import { isCloudMode } from '@/lib/cloudMode'
+import { isDemoBuild } from '@/lib/session'
+import {
+  fetchCloudOverrides,
+  finishCloudReview,
+  requestCloudTtsPreviewAudio,
+  CloudApiError,
+  type CloudPatchResponse,
+  type CloudSceneOverride,
+  type CloudSceneReviewCommand,
+} from '@/lib/cloudApi'
+import { CloudDraftSaveDisposedError, CloudSceneSaveCoordinator } from '@/lib/cloudDraftSave'
+import { useCloudEditorData } from '../hooks/useCloudEditorData'
+import { useCloudReviewLifecycle } from '../hooks/useCloudReviewLifecycle'
 import { STUDY_TASKS } from '@/features/study/studyTasks'
 import { EditorTour, type TourStep } from '@/features/study/EditorTour'
 import { HelpPanel } from '@/features/study/HelpPanel'
 import type { Scene } from '@/types'
+import { isAppRouterRuntime } from '@/lib/runtimeEnv'
+import { cloudDeliverableHref } from '@/lib/reviewLifecycle'
+import type { BrowserRole } from '@/lib/reviewAccess'
 
-export default function EditorPage() {
+const CLOUD_DEFERRED_COPY = 'Available in the Portfolio Strong release.'
+const EMPTY_OVERRIDES: Record<string, CloudSceneOverride> = {}
+
+interface EditorWorkspaceProps {
+  projectId: string
+  expectedJobId?: string
+  staticFixture?: boolean
+  backHref?: string
+  browserRole?: BrowserRole
+}
+
+/** Retained React Router adapter for the Vite rollback entry point. */
+export default function EditorPage({ staticFixture = false }: { staticFixture?: boolean }) {
   const { projectId = '' } = useParams<{ projectId: string }>()
-  const project = useAppStore((s) => s.projects.find((p) => p.id === projectId) ?? null)
+  return <EditorWorkspace projectId={projectId} staticFixture={staticFixture} />
+}
+
+/** Browser-heavy editor island shared by the explicit Next review route. */
+export function EditorWorkspace({
+  projectId,
+  expectedJobId,
+  staticFixture = false,
+  backHref = '/dashboard/projects',
+  browserRole,
+}: EditorWorkspaceProps) {
+  const project = useAppStore((s) => {
+    const candidate = s.projects.find((item) => item.id === projectId) ?? null
+    if (expectedJobId && candidate?.jobId !== expectedJobId) return null
+    return candidate
+  })
   const queryClient = useQueryClient()
 
-  const hasData = !!project?.dataPath
+  // Demo/study/tutorial branch BEFORE any cloud token/manifest logic (G7 B4).
+  // Only the registry-validated public route can set staticFixture.
+  const cloud = isCloudMode() && !isDemoBuild() && !isStudyMode() && !staticFixture
+  const appRouter = isAppRouterRuntime()
+  const jobId = project?.jobId
+  // Cloud editor readiness comes from a VALID manifest, not project.dataPath.
+  const cloudEnabled = cloud && !!jobId && project?.status === 'ready'
+  const cloudData = useCloudEditorData(projectId, jobId, cloudEnabled)
+  const cloudLifecycle = useCloudReviewLifecycle(jobId, cloud && appRouter && !!jobId)
+  const appReviewReadOnly = cloud && appRouter && (
+    browserRole === 'viewer' || cloudLifecycle.review?.state !== 'open'
+  )
+  const canFinishReview = cloud && appRouter && (
+    browserRole === 'owner' || browserRole === 'reviewer'
+  ) && cloudLifecycle.review?.state === 'open'
+  const cloudPreviewEnabled = cloud && appRouter && (
+    browserRole === 'owner' || browserRole === 'editor' || browserRole === 'reviewer'
+  ) && !!jobId && cloudLifecycle.review?.state === 'open'
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [reviewSavingSceneId, setReviewSavingSceneId] = useState<number | null>(null)
+  const [overrideRefreshFailure, setOverrideRefreshFailure] = useState<{
+    scope: string
+    sceneKey: string
+  } | null>(null)
+  const cloudSaveCoordinatorRef = useRef<CloudSceneSaveCoordinator | null>(null)
+  const cloudOverrideScope = cloud ? `${projectId}\u0000${jobId ?? ''}` : ''
+  const acknowledgedOverridesRef = useRef<{
+    scope: string
+    overrides: Record<string, CloudSceneOverride>
+  }>({ scope: cloudOverrideScope, overrides: {} })
+  if (acknowledgedOverridesRef.current.scope !== cloudOverrideScope) {
+    acknowledgedOverridesRef.current = { scope: cloudOverrideScope, overrides: {} }
+  }
+
+  function cloudSaveCoordinator(): CloudSceneSaveCoordinator {
+    cloudSaveCoordinatorRef.current ??= new CloudSceneSaveCoordinator()
+    return cloudSaveCoordinatorRef.current
+  }
+
+  useEffect(() => {
+    // StrictMode deliberately runs setup/cleanup/setup on mount. Nulling the
+    // disposed instance lets the second setup own a fresh coordinator.
+    const coordinator = cloudSaveCoordinatorRef.current ?? new CloudSceneSaveCoordinator()
+    cloudSaveCoordinatorRef.current = coordinator
+    return () => {
+      coordinator.dispose()
+      if (cloudSaveCoordinatorRef.current === coordinator) {
+        cloudSaveCoordinatorRef.current = null
+      }
+    }
+  }, [])
+
+  const hasData = cloud ? !!cloudData.manifest : !!project?.dataPath
 
   // ── Study mode ────────────────────────────────────────────────────────────
   const study = isStudyMode()
@@ -53,68 +151,152 @@ export default function EditorPage() {
   const [previewExportId, setPreviewExportId] = useState<string | null>(null)
   const previewTimer = useRef<number | null>(null)
 
-  const { data: rawScenes = [], isLoading: scenesLoading } = useQuery({
+  const { data: legacyRawScenes = [], isLoading: legacyScenesLoading } = useQuery({
     queryKey: queryKeys.scenes(projectId),
     queryFn: () => fetchScenes(projectId),
-    enabled: !!projectId && hasData,
+    enabled: !cloud && !!projectId && hasData,
     retry: false,
   })
 
-  const { data: audioEvents = [] } = useQuery({
+  const { data: legacyAudioEvents = [] } = useQuery({
     queryKey: queryKeys.audioEvents(projectId),
     queryFn: () => fetchAudioEvents(projectId),
-    enabled: !!projectId && hasData,
+    enabled: !cloud && !!projectId && hasData,
     retry: false,
   })
 
-  const { data: adGaps = [] } = useQuery({
+  const { data: legacyAdGaps = [] } = useQuery({
     queryKey: queryKeys.adGaps(projectId),
     queryFn: () => fetchAdGaps(projectId),
-    enabled: !!projectId && hasData,
+    enabled: !cloud && !!projectId && hasData,
     retry: false,
   })
 
-  const { data: entities = [] } = useQuery({
+  const { data: legacyEntities = [] } = useQuery({
     queryKey: queryKeys.entities(projectId),
     queryFn: () => fetchEntities(projectId),
-    enabled: !!projectId && hasData,
+    enabled: !cloud && !!projectId && hasData,
     retry: false,
   })
 
-  const { data: serverOverrides = {} } = useQuery({
-    queryKey: queryKeys.overrides(projectId),
-    queryFn: () => fetchOverrides(projectId),
-    enabled: !!projectId && hasData,
+  const overridesQuery = useQuery({
+    // G7.1 C: every cloud key carries BOTH stable IDs so a project
+    // reconciled to a NEW processing job can never reuse an earlier job's
+    // cached data.
+    queryKey: cloud
+      ? queryKeys.cloudOverrides(projectId, jobId ?? '')
+      : queryKeys.overrides(projectId),
+    // Cloud overrides resolve projectId -> the stored jobId (G7 B5).
+    queryFn: async () => {
+      if (!cloud) return fetchOverrides(projectId)
+      const fetched = await fetchCloudOverrides(jobId!)
+      const acknowledged = acknowledgedOverridesRef.current
+      if (acknowledged.scope !== cloudOverrideScope) return fetched
+      const merged = { ...fetched }
+      for (const [sceneKey, override] of Object.entries(acknowledged.overrides)) {
+        merged[sceneKey] = { ...(merged[sceneKey] ?? {}), ...override }
+      }
+      return merged
+    },
+    enabled: !!projectId && hasData && (!cloud || !!jobId),
     retry: false,
   })
+  const serverOverrides = overridesQuery.data ?? EMPTY_OVERRIDES
+  // The legacy and cloud query branches share one hook invocation, so the
+  // inferred result is a union. Past this explicit cloud boundary, only the
+  // exact versioned cloud contract is legal.
+  const cloudOverrides = cloud
+    ? serverOverrides as Record<string, CloudSceneOverride>
+    : EMPTY_OVERRIDES
+
+  const rawScenes = cloud ? cloudData.rawScenes : legacyRawScenes
+  const audioEvents = cloud ? cloudData.audioEvents : legacyAudioEvents
+  const adGaps = cloud ? cloudData.adGaps : legacyAdGaps
+  const entities = cloud ? cloudData.entities : legacyEntities
+  const scenesLoading = cloud ? cloudData.scenesLoading : legacyScenesLoading
 
   const [scenes, setScenes] = useState<Scene[]>([])
+  const [finishSaving, setFinishSaving] = useState(false)
+
+  const decidedSceneCount = scenes.filter((scene) => {
+    const status = cloudOverrides[scene.sceneKey]?.reviewStatus
+    return status === 'approved' || status === 'rejected'
+  }).length
+  const approvedSceneCount = scenes.filter(
+    (scene) => cloudOverrides[scene.sceneKey]?.reviewStatus === 'approved',
+  ).length
+  const reviewComplete = scenes.length > 0 && decidedSceneCount === scenes.length
+
+  async function handleFinishReview() {
+    if (!jobId || !reviewComplete || finishSaving || !canFinishReview) return
+    const zeroAdConfirmed = approvedSceneCount === 0
+    if (zeroAdConfirmed && !window.confirm(
+      'No scenes are approved. Finish as a zero-audio-description review and create the neutral deliverable set?',
+    )) return
+    setFinishSaving(true)
+    setSaveError(null)
+    try {
+      await finishCloudReview(jobId, zeroAdConfirmed)
+      await cloudLifecycle.refreshAfterFinish()
+      setFinishSaving(false)
+    } catch (error) {
+      setSaveError(error instanceof CloudApiError
+        ? `Finish Review failed (${error.code ?? error.category}).`
+        : 'Finish Review failed.')
+      setFinishSaving(false)
+    }
+  }
 
   useEffect(() => {
     if (!rawScenes.length) return
-    const edits = loadEdits(projectId)
+    // Cloud drafts are scoped to the PROCESSING JOB: a project reconciled to
+    // a new jobId must never replay an earlier job's positional drafts.
+    const edits = loadEdits(projectId, cloud ? jobId : undefined)
     setScenes(
       rawScenes.map((s) => {
         const local = edits.scenes[s.id]
-        const remote = serverOverrides[`scene_${s.sceneNumber}`] ?? {}
-        // Precedence: server override > local edit > pipeline default
-        const text = remote.ad ?? local?.text ?? s.text
+        // Cloud merges by the EXACT canonical pipeline scene id; legacy and
+        // demo/study keep their existing positional identity behavior.
+        const remote = serverOverrides[cloud ? s.sceneKey : `scene_${s.sceneNumber}`] ?? {}
+        // A session draft is the newest local user intent. It must win over
+        // the last acknowledged server override after remount/reload.
+        const text = local?.text ?? remote.ad ?? s.text
         // Study mode: scenes load inactive until the participant reviews and
         // activates each one. Non-study app keeps the pipeline default (active).
-        const active = remote.active ?? local?.active ?? (study ? false : s.active)
+        const active = local?.active ?? remote.active ?? (study ? false : s.active)
         const locked = remote.locked ?? s.locked
         const voiceId = remote.voice ?? s.voiceId
         const voiceSpeed = remote.speed ?? s.voiceSpeed ?? 1.0
         return { ...s, text, active, locked, voiceId, voiceSpeed }
       })
     )
-  }, [rawScenes, projectId, serverOverrides, study])
+  }, [rawScenes, projectId, jobId, serverOverrides, study, cloud])
 
   const [activeSceneId, setActiveSceneId] = useState<number | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [rightTab, setRightTab] = useState<RightPanelTab>('script')
 
   const activeScene = scenes.find((s) => s.id === activeSceneId) ?? scenes[0] ?? null
+  const activeCloudOverride = cloud && activeScene
+    ? cloudOverrides[activeScene.sceneKey]
+    : undefined
+  const activeCloudDraft = cloud && activeScene
+    ? loadEdits(projectId, jobId).scenes[activeScene.id]
+    : undefined
+  const activeOverrideRefreshFailed = !!(
+    activeScene &&
+    overrideRefreshFailure?.scope === cloudOverrideScope &&
+    overrideRefreshFailure.sceneKey === activeScene.sceneKey
+  )
+  const cloudReviewUnavailable = cloud && (
+    activeOverrideRefreshFailed || overridesQuery.isError || overridesQuery.isRefetchError
+  )
+  const cloudReviewLoading = cloud && !cloudReviewUnavailable && !overridesQuery.isSuccess
+  // `generated` is evidence from a successful authoritative map in which the
+  // exact key is absent. It is never a loading/error fallback.
+  const activeCloudReviewStatus = cloud && !cloudReviewLoading && !cloudReviewUnavailable
+    ? (activeCloudOverride?.reviewStatus ?? 'generated')
+    : undefined
 
   // Study mode: track how many scenes the participant has activated so far.
   const activatedCount = scenes.filter((s) => s.active).length
@@ -237,9 +419,151 @@ export default function EditorPage() {
     setCompleted((prev) => (prev.has(id) ? prev : new Set(markTaskComplete(id))))
   }
 
+  function acknowledgeCloudSave(expectedSceneKey: string, response: CloudPatchResponse) {
+    if (
+      response.projectId !== projectId ||
+      response.jobId !== jobId ||
+      response.sceneId !== expectedSceneKey
+    ) {
+      throw new Error('cloud scene acknowledgement identity mismatch')
+    }
+    const current = acknowledgedOverridesRef.current
+    if (current.scope !== cloudOverrideScope) {
+      throw new Error('cloud scene acknowledgement scope changed')
+    }
+    const acknowledged = {
+      ...(current.overrides[expectedSceneKey] ?? {}),
+      ...response.override,
+    }
+    acknowledgedOverridesRef.current = {
+      scope: current.scope,
+      overrides: { ...current.overrides, [expectedSceneKey]: acknowledged },
+    }
+    queryClient.setQueryData<Record<string, CloudSceneOverride>>(
+      queryKeys.cloudOverrides(projectId, jobId!),
+      (cached) => ({
+        ...(cached ?? {}),
+        [expectedSceneKey]: {
+          ...(cached?.[expectedSceneKey] ?? {}),
+          ...acknowledged,
+        },
+      }),
+    )
+    setOverrideRefreshFailure((failure) => (
+      failure?.scope === cloudOverrideScope && failure.sceneKey === expectedSceneKey
+        ? null
+        : failure
+    ))
+  }
+
+  function cloudExpectedVersion(sceneKey: string): number {
+    const acknowledged = acknowledgedOverridesRef.current.overrides[sceneKey]
+    return acknowledged?.version ?? cloudOverrides[sceneKey]?.version ?? 0
+  }
+
+  async function refreshCloudOverrideAfterConflict(sceneKey: string): Promise<boolean> {
+    const requestedScope = cloudOverrideScope
+    const current = acknowledgedOverridesRef.current
+    if (current.scope === cloudOverrideScope && sceneKey in current.overrides) {
+      const next = { ...current.overrides }
+      delete next[sceneKey]
+      acknowledgedOverridesRef.current = { scope: current.scope, overrides: next }
+    }
+    if (!jobId) return false
+    const key = queryKeys.cloudOverrides(projectId, jobId)
+    // Cancel/ignore an older query, then make a request that starts after the
+    // 409. Only a successfully validated response is installed as evidence.
+    let fetched: Record<string, CloudSceneOverride>
+    try {
+      await queryClient.cancelQueries({ queryKey: key, exact: true })
+      fetched = await fetchCloudOverrides(jobId)
+    } catch {
+      setOverrideRefreshFailure({ scope: requestedScope, sceneKey })
+      return false
+    }
+    if (acknowledgedOverridesRef.current.scope !== requestedScope) return false
+    const acknowledged = acknowledgedOverridesRef.current
+    const merged = { ...fetched }
+    if (acknowledged.scope === requestedScope) {
+      for (const [key, override] of Object.entries(acknowledged.overrides)) {
+        merged[key] = { ...(merged[key] ?? {}), ...override }
+      }
+    }
+    queryClient.setQueryData(key, merged)
+    setOverrideRefreshFailure((failure) => (
+      failure?.scope === requestedScope && failure.sceneKey === sceneKey
+        ? null
+        : failure
+    ))
+    return true
+  }
+
+  async function reportCloudSaveFailure(
+    error: unknown,
+    sceneKey: string,
+    hasDraftBackedField: boolean,
+    fallback: string,
+  ): Promise<void> {
+    if (error instanceof CloudDraftSaveDisposedError) return
+    if (error instanceof CloudApiError && error.code === 'stale_version') {
+      const refreshed = await refreshCloudOverrideAfterConflict(sceneKey)
+      setSaveError(
+        refreshed
+          ? hasDraftBackedField
+            ? 'This scene changed elsewhere. The latest review state was loaded; your draft remains in this session. Review it and retry.'
+            : 'This scene changed elsewhere. The latest review state was loaded; retry your change.'
+          : hasDraftBackedField
+            ? 'This scene changed elsewhere, but the latest review state could not be loaded. Your draft remains in this session; refresh before retrying.'
+            : 'This scene changed elsewhere, but the latest review state could not be loaded. Refresh before retrying.',
+      )
+      return
+    }
+    setSaveError(
+      error instanceof CloudApiError && error.category === 'auth'
+        ? 'Save failed: access token missing or not accepted.'
+        : fallback,
+    )
+  }
+
+  // One save path (G7 B5): cloud PATCHes the EXACT retained pipeline scene
+  // id via the stored jobId; a failure is VISIBLE (inline banner), never
+  // only console.error. Legacy/study keep their existing behavior.
+  function saveScene(sceneId: number, patch: Parameters<typeof patchScene>[2]) {
+    if (appReviewReadOnly) return
+    if (cloud) {
+      const target = scenes.find((s) => s.id === sceneId)
+      if (!target || !jobId) return
+      const hasDraftBackedField = typeof patch.ad === 'string' || typeof patch.active === 'boolean'
+      cloudSaveCoordinator().save(
+        projectId,
+        jobId,
+        sceneId,
+        target.sceneKey,
+        patch,
+        cloudExpectedVersion(target.sceneKey),
+        (response) => acknowledgeCloudSave(target.sceneKey, response),
+      )
+        .then(({ latest }) => {
+          if (!latest) return
+          setSaveError(null)
+        })
+        .catch((error) => reportCloudSaveFailure(
+          error,
+          target.sceneKey,
+          hasDraftBackedField,
+          hasDraftBackedField
+            ? 'Save failed. Unsaved description text or active-state changes remain in this session; retry the action.'
+            : 'Save failed. This setting was not applied; retry the action.',
+        ))
+      return
+    }
+    patchScene(projectId, sceneId, patch).catch(console.error)
+  }
+
   function handleAdChange(sceneId: number, text: string) {
+    if (appReviewReadOnly) return
     setScenes((prev) => prev.map((s) => (s.id === sceneId ? { ...s, text } : s)))
-    persistSceneText(projectId, sceneId, text)
+    persistSceneText(projectId, sceneId, text, cloud ? jobId : undefined)
     if (study) {
       if (!loggedScenesRef.current.has(sceneId)) {
         loggedScenesRef.current.add(sceneId)
@@ -255,30 +579,60 @@ export default function EditorPage() {
   }
 
   function handleActiveToggle(sceneId: number) {
-    setScenes((prev) =>
-      prev.map((s) => {
-        if (s.id !== sceneId) return s
-        const next = !s.active
-        persistSceneActive(projectId, sceneId, next)
-        patchScene(projectId, sceneId, { active: next }).catch(console.error)
-        if (study) {
-          logEvent('toggle_scene', { sceneId, active: next })
-          if (next) markTask('activate')
-        }
-        return { ...s, active: next }
-      })
-    )
+    if (appReviewReadOnly) return
+    const target = scenes.find((scene) => scene.id === sceneId)
+    if (!target) return
+    const next = !target.active
+    setScenes((prev) => prev.map((s) => (s.id === sceneId ? { ...s, active: next } : s)))
+    persistSceneActive(projectId, sceneId, next, cloud ? jobId : undefined)
+    saveScene(sceneId, { active: next })
+    if (study) {
+      logEvent('toggle_scene', { sceneId, active: next })
+      if (next) markTask('activate')
+    }
   }
 
   function handleApply(sceneId: number) {
+    if (appReviewReadOnly) return
     const target = scenes.find((s) => s.id === sceneId)
     if (!target) return
-    patchScene(projectId, sceneId, {
+    const applyPatch = {
       ad: target.text,
       active: true,
       voice: (target.voiceId as VoiceId | undefined) ?? 'onyx',
       speed: target.voiceSpeed ?? 1.0,
-    })
+    }
+    if (cloud) {
+      if (!jobId) return
+      cloudSaveCoordinator().save(
+        projectId,
+        jobId,
+        sceneId,
+        target.sceneKey,
+        applyPatch,
+        cloudExpectedVersion(target.sceneKey),
+        (response) => acknowledgeCloudSave(target.sceneKey, response),
+      )
+        .then(({ latest }) => {
+          if (!latest) return
+          setSaveError(null)
+          const remaining = loadEdits(projectId, jobId).scenes[sceneId]
+          // Do not imply the currently visible newer draft was included in
+          // an older successful request. Normal no-race Apply shows success.
+          if (remaining?.text !== undefined || remaining?.active !== undefined) return
+          setAppliedSceneId(sceneId)
+          if (appliedTimer.current) window.clearTimeout(appliedTimer.current)
+          appliedTimer.current = window.setTimeout(() => setAppliedSceneId(null), 3000)
+        })
+        .catch((error) => reportCloudSaveFailure(
+          error,
+          target.sceneKey,
+          true,
+          'Save failed. Unsaved description text or active-state changes remain in this session; press Apply again.',
+        ))
+      return
+    }
+    patchScene(projectId, sceneId, applyPatch)
       .then(() => {
         if (!study) return
         markTask('apply')
@@ -290,21 +644,72 @@ export default function EditorPage() {
   }
 
   function handleVoiceChange(sceneId: number, voice: VoiceId) {
+    if (appReviewReadOnly) return
     setScenes((prev) => prev.map((s) => (s.id === sceneId ? { ...s, voiceId: voice } : s)))
-    patchScene(projectId, sceneId, { voice }).catch(console.error)
+    saveScene(sceneId, { voice })
   }
 
   function handleSpeedChange(sceneId: number, speed: number) {
+    if (appReviewReadOnly) return
     setScenes((prev) => prev.map((s) => (s.id === sceneId ? { ...s, voiceSpeed: speed } : s)))
-    patchScene(projectId, sceneId, { speed }).catch(console.error)
+    saveScene(sceneId, { speed })
   }
 
   function handleLockedChange(sceneId: number, locked: boolean) {
+    if (appReviewReadOnly) return
     setScenes((prev) => prev.map((s) => (s.id === sceneId ? { ...s, locked } : s)))
-    patchScene(projectId, sceneId, { locked }).catch(console.error)
+    saveScene(sceneId, { locked })
+  }
+
+  function handleReview(sceneId: number, reviewStatus: Exclude<CloudSceneReviewCommand, 'edited'>) {
+    if (!cloud || !jobId || appReviewReadOnly) return
+    const target = scenes.find((scene) => scene.id === sceneId)
+    if (!target) return
+    setReviewSavingSceneId(sceneId)
+    cloudSaveCoordinator().save(
+      projectId,
+      jobId,
+      sceneId,
+      target.sceneKey,
+      {
+        ad: target.text,
+        active: target.active,
+        locked: target.locked,
+        voice: target.voiceId ?? 'onyx',
+        speed: target.voiceSpeed ?? 1,
+        reviewStatus,
+      },
+      cloudExpectedVersion(target.sceneKey),
+      (response) => acknowledgeCloudSave(target.sceneKey, response),
+    )
+      .then(({ latest }) => {
+        if (latest) setSaveError(null)
+      })
+      .catch((error) => reportCloudSaveFailure(
+        error,
+        target.sceneKey,
+        true,
+        'Review decision failed. Your description draft remains in this session; retry the action.',
+      ))
+      .finally(() => setReviewSavingSceneId((current) => current === sceneId ? null : current))
+  }
+
+  function handleCloudPreview(
+    sceneKey: string,
+    text: string,
+    voice: VoiceId,
+    speed: number,
+    signal: AbortSignal,
+  ): Promise<Blob> {
+    if (!jobId || !cloudPreviewEnabled) return Promise.reject(new CloudApiError('auth'))
+    return requestCloudTtsPreviewAudio(jobId, sceneKey, text, voice, speed, { signal })
   }
 
   async function performRename(characterId: string, newName: string) {
+    if (cloud) {
+      setSaveError(`Character rename: ${CLOUD_DEFERRED_COPY}`)
+      return
+    }
     await patchEntity(projectId, characterId, newName)
     await queryClient.invalidateQueries({ queryKey: queryKeys.entities(projectId) })
     await queryClient.invalidateQueries({ queryKey: queryKeys.scenes(projectId) })
@@ -392,6 +797,7 @@ export default function EditorPage() {
     return () => {
       if (pollTimer.current) window.clearTimeout(pollTimer.current)
       if (previewTimer.current) window.clearTimeout(previewTimer.current)
+      if (appliedTimer.current) window.clearTimeout(appliedTimer.current)
     }
   }, [])
 
@@ -482,10 +888,14 @@ export default function EditorPage() {
             <RotateCcw size={14} />
             Restart demo
           </button>
-        ) : (
-          <Link to="/dashboard/projects" className="text-neutral-400 hover:text-neutral-700 transition-colors">
+        ) : staticFixture ? (
+          <a href="/tutorials" className="text-neutral-400 hover:text-neutral-700 transition-colors">
             <ArrowLeft size={16} />
-          </Link>
+          </a>
+        ) : (
+          <a href={backHref} className="text-neutral-400 hover:text-neutral-700 transition-colors">
+            <ArrowLeft size={16} />
+          </a>
         )}
         <Separator orientation="vertical" className="h-4" />
         <Logo size={18} className="text-brand-400" />
@@ -514,6 +924,59 @@ export default function EditorPage() {
               </Button>
             </span>
           </>
+        ) : cloud && appRouter && cloudLifecycle.review?.state === 'open' ? (
+          <span className="flex items-center gap-2">
+            {browserRole === 'viewer' ? (
+              <span className="text-xs text-neutral-400">Read-only review</span>
+            ) : !reviewComplete ? (
+              <span className="text-xs text-neutral-400">
+                Decide every scene ({decidedSceneCount}/{scenes.length})
+              </span>
+            ) : null}
+            {reviewComplete && !canFinishReview && (
+              <span className="text-xs text-neutral-400">
+                An Owner or Reviewer must finish this review.
+              </span>
+            )}
+            {(browserRole === 'owner' || browserRole === 'reviewer') && (
+              <Button
+                variant="default"
+                size="sm"
+                className="gap-2"
+                disabled={!reviewComplete || finishSaving || !canFinishReview}
+                onClick={handleFinishReview}
+              >
+                {finishSaving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                Finish Review
+              </Button>
+            )}
+          </span>
+        ) : cloud && appRouter ? (
+          <span className="text-xs font-medium text-neutral-500">
+            {cloudLifecycle.review?.state === 'completed'
+              ? cloudLifecycle.render?.state === 'completed'
+                ? 'Deliverables ready'
+                : `Render ${cloudLifecycle.render?.state ?? 'queued'}`
+              : cloudLifecycle.review?.state === 'expired'
+                ? 'Review expired'
+                : 'Loading review…'}
+          </span>
+        ) : cloud ? (
+          <span className="flex items-center gap-2">
+            <span id="export-deferred-note" className="text-xs text-neutral-400">
+              Coming in v0.2
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled
+              aria-describedby="export-deferred-note"
+            >
+              <Download size={14} />
+              Export
+            </Button>
+          </span>
         ) : (
           <Button
             variant="outline"
@@ -527,10 +990,86 @@ export default function EditorPage() {
         )}
       </header>
 
+      {saveError && (
+        <div
+          role="alert"
+          className="flex shrink-0 items-center gap-2 border-b border-danger-200 bg-danger-50 px-4 py-2"
+        >
+          <p className="text-xs font-medium text-danger-500">{saveError}</p>
+          <button
+            className="ml-auto text-xs text-neutral-500 hover:text-neutral-700"
+            onClick={() => setSaveError(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {cloud && appRouter && cloudLifecycle.unavailable && (
+        <div role="alert" className="shrink-0 border-b border-warning-200 bg-warning-50 px-4 py-2 text-xs text-neutral-700">
+          Review status is temporarily unavailable. Editing remains locked until the server can confirm it.
+        </div>
+      )}
+
+      {cloud && appRouter && cloudLifecycle.review?.state === 'open' && (() => {
+        const remaining = Date.parse(cloudLifecycle.review.expiresAt) - Date.now()
+        if (!(remaining > 0 && remaining <= 7 * 24 * 60 * 60 * 1000)) return null
+        const days = Math.max(1, Math.ceil(remaining / (24 * 60 * 60 * 1000)))
+        return (
+          <div role="status" className="shrink-0 border-b border-warning-200 bg-warning-50 px-4 py-2 text-xs text-neutral-700">
+            This unfinished review expires after {days} {days === 1 ? 'day' : 'days'} of remaining inactivity. Any saved scene change renews the 30-day window.
+          </div>
+        )
+      })()}
+
+      {cloud && appRouter && cloudLifecycle.review?.state === 'expired' && (
+        <div role="alert" className="shrink-0 border-b border-danger-200 bg-danger-50 px-4 py-2 text-xs text-danger-500">
+          This review expired after 30 days of inactivity and can no longer be edited.
+        </div>
+      )}
+
+      {cloud && appRouter && cloudLifecycle.review?.state === 'completed' && (
+        <div className="shrink-0 border-b border-brand-200 bg-brand-50 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div>
+              <p className="text-xs font-semibold text-neutral-900">
+                {cloudLifecycle.render?.state === 'completed'
+                  ? 'All five deliverables are ready.'
+                  : cloudLifecycle.render?.state === 'failed'
+                    ? 'Rendering failed.'
+                    : cloudLifecycle.render?.state === 'cancelled'
+                      ? 'Rendering was cancelled.'
+                      : 'Review locked. Rendering all five deliverables…'}
+              </p>
+              <p className="mt-0.5 text-[11px] text-neutral-500">
+                {cloudLifecycle.render?.state === 'completed'
+                  ? 'Each link requests a fresh version-pinned S3 download.'
+                  : 'This page polls the durable render state; a terminal webhook is delivered independently.'}
+              </p>
+            </div>
+            {cloudLifecycle.deliverables.length === 5 && (
+              <div className="ml-auto flex flex-wrap gap-2">
+                {cloudLifecycle.deliverables.map((deliverable) => (
+                  <a
+                    key={deliverable.id}
+                    href={cloudDeliverableHref(deliverable.id)}
+                    download={deliverable.fileName}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-brand-200 bg-white px-2.5 py-1.5 text-xs font-medium uppercase text-brand-500 hover:bg-brand-50"
+                  >
+                    <Download size={12} />
+                    {deliverable.kind}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {study && (
         <div className="shrink-0 border-b border-brand-200 bg-brand-50 px-4 py-2" data-tour="help">
           <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold text-neutral-900">Try InstaScribe:</span>
+            <span className="text-sm font-semibold text-neutral-900">Try InstaDescribe:</span>
             <Button
               variant="outline"
               size="sm"
@@ -556,13 +1095,14 @@ export default function EditorPage() {
             onActiveToggle={handleActiveToggle}
             collisions={collisionsBySceneId}
             loading={scenesLoading}
+            readOnly={appReviewReadOnly}
           />
         </div>
 
         <div data-tour="video" className="flex min-w-0 flex-1 overflow-hidden">
           <VideoPanel
             projectId={projectId}
-            videoSrc={project?.videoFile}
+            videoSrc={cloud ? cloudData.videoUrl : project?.videoFile}
             duration={duration}
             scenes={scenes}
             adGaps={adGaps}
@@ -595,6 +1135,19 @@ export default function EditorPage() {
               onSpeedChange={handleSpeedChange}
               onLockedChange={handleLockedChange}
               onRenameRequest={handleRenameRequest}
+              cloudDeferred={cloud}
+              onCloudPreview={cloudPreviewEnabled ? handleCloudPreview : undefined}
+              cloudReviewEnabled={cloud}
+              cloudReviewStatus={activeCloudReviewStatus}
+              cloudReviewLoading={cloudReviewLoading}
+              cloudReviewUnavailable={cloudReviewUnavailable}
+              cloudReviewedAt={activeCloudReviewStatus ? (activeCloudOverride?.reviewedAt ?? null) : undefined}
+              cloudReviewSaving={reviewSavingSceneId === activeScene?.id}
+              cloudHasUnsavedDraft={!!activeCloudDraft && (
+                activeCloudDraft.text !== undefined || activeCloudDraft.active !== undefined
+              )}
+              onCloudReview={handleReview}
+              readOnly={appReviewReadOnly}
             />
           ) : rightTab === 'characters' ? (
             <CharactersPanel
@@ -603,6 +1156,7 @@ export default function EditorPage() {
               activeTab={rightTab}
               onTabChange={setRightTab}
               onRename={performRename}
+              cloudDeferred={cloud}
             />
           ) : (
             <QualityPanel

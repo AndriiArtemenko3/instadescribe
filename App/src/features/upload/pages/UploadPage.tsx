@@ -29,12 +29,27 @@ export default function UploadPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // G7.1 D2: the replace control owns a REAL file input (the previous ref
+  // pointed at nothing); object-URL revocation happens inside setFile.
   function replaceFile() {
     fileInputRef.current?.click()
   }
 
+  function handleReplaceChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (f) void setFile(f)
+    e.target.value = ''
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-white">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="video/mp4,video/quicktime,video/webm"
+        className="hidden"
+        onChange={handleReplaceChange}
+      />
       {/* Top bar — matches editor style */}
       <header className="flex h-topnav shrink-0 items-center gap-2 border-b border-neutral-200 bg-neutral-0 px-4">
         <Link
@@ -93,6 +108,14 @@ export default function UploadPage() {
             onBack={back}
             onConfirm={submit}
           />
+        )}
+
+        {/* Submit/selection errors are visible on EVERY wizard step — a
+            rejected replacement at steps 1-3 must not fail silently. */}
+        {state.step < 5 && state.submitError && (
+          <p role="alert" className="mx-auto mt-3 max-w-xl text-center text-sm text-danger-400">
+            {state.submitError}
+          </p>
         )}
 
         {state.step === 5 && (

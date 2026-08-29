@@ -3,9 +3,14 @@ import { Link } from 'react-router-dom'
 import { Upload, HelpCircle, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { isCloudMode } from '@/lib/cloudMode'
+import { CLOUD_MAX_FILE_BYTES, CLOUD_MAX_FILE_LABEL } from '@/lib/cloudUpload'
 
-const MAX_BYTES = 4 * 1024 * 1024 * 1024
-const WARN_BYTES = 500 * 1024 * 1024
+const LEGACY_MAX_BYTES = 4 * 1024 * 1024 * 1024
+// One centralized limit (G7.1 D1): the cloud contract is 250 MiB; legacy
+// keeps its 4 GB wording and behavior.
+const MAX_BYTES = isCloudMode() ? CLOUD_MAX_FILE_BYTES : LEGACY_MAX_BYTES
+const MAX_LABEL = isCloudMode() ? CLOUD_MAX_FILE_LABEL : '4 GB'
 
 interface StepFileUploadProps {
   onFileSelected: (file: File) => Promise<void>
@@ -22,7 +27,7 @@ export function StepFileUpload({ onFileSelected, onCancel, onNext, hasFile }: St
   async function handleFile(file: File) {
     setError(null)
     if (file.size > MAX_BYTES) {
-      setError('File exceeds the 4 GB limit.')
+      setError(`File exceeds the ${MAX_LABEL} limit.`)
       return
     }
     await onFileSelected(file)
@@ -76,8 +81,8 @@ export function StepFileUpload({ onFileSelected, onCancel, onNext, hasFile }: St
       )}
 
       <p className="text-right text-xs text-neutral-400">
-        Maximum size: 4 GB
-        {WARN_BYTES && (
+        Maximum size: {MAX_LABEL}
+        {!isCloudMode() && (
           <span className="ml-1">(files &gt; 500 MB may take longer)</span>
         )}
       </p>

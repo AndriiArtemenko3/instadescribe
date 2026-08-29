@@ -22,4 +22,4 @@ rm -rf dist/data dist/videos dist/vibe.mp4
 echo ""
 echo "Built App/dist (study mode)."
 echo "  Questionnaire: $VITE_QUESTIONNAIRE_URL  (param: $QPARAM)"
-echo "Next: docker build -t instascribe-study .  (from repo root) then deploy — see deploy-guide.md"
+echo "Next: docker build -t instadescribe-study .  (from repo root) then deploy — see deploy-guide.md"

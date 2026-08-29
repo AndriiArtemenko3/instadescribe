@@ -16,6 +16,29 @@ dist/
 *.egg-info/
 .venv/
 
+# Terraform local/generated artifacts — configuration and the provider lock
+# file remain trackable; state, plans, crash output, overrides and secret
+# variable files must never enter the repository.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.*
+tfplan
+tfplan.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.tfvars
+*.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+*.secret.tfvars
+*.secret.tfvars.json
+
 # Runtime / study state
 modular_pipeline/jobs/
 modular_pipeline/study_logs/

@@ -10,6 +10,10 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+.next
+playwright-report
+test-results
+*.tsbuildinfo
 *.local
 
 # Editor directories and files

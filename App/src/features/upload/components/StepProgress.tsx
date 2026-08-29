@@ -46,18 +46,26 @@ export function StepProgress({
 
         <div className="h-3 w-full overflow-hidden rounded-full bg-neutral-200">
           <div
+            role="progressbar"
+            aria-label="Processing progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={isFailed || isReady ? 100 : progress}
             className={cn(
               'h-full rounded-full transition-all duration-500',
               isFailed ? 'bg-danger-400' : 'bg-neutral-900',
             )}
-            style={{ width: `${isFailed ? 100 : progress}%` }}
+            style={{ width: `${isFailed || isReady ? 100 : progress}%` }}
           />
         </div>
 
         {isFailed ? (
           <p className="text-sm font-medium text-danger-400">Failed</p>
         ) : isReady ? (
-          <p className="text-sm font-medium text-success-400">Ready!</p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-success-400">Ready!</p>
+            <p className="text-xs font-medium tabular-nums text-success-400">100%</p>
+          </div>
         ) : (
           <div className="flex items-center justify-between">
             <p className="text-sm text-neutral-500">{stageLabel}</p>
@@ -82,9 +90,7 @@ export function StepProgress({
             <AlertTriangle size={15} className="mt-0.5 shrink-0 text-danger-400" />
             <div>
               <p className="text-sm font-medium text-danger-700 mb-1">Pipeline failed</p>
-              <pre className="text-xs text-danger-600 whitespace-pre-wrap break-all max-h-32 overflow-y-auto">
-                {failedError.slice(0, 600)}{failedError.length > 600 ? '…' : ''}
-              </pre>
+              <p className="text-xs text-danger-600">{failedError}</p>
             </div>
           </div>
         </div>
@@ -92,8 +98,9 @@ export function StepProgress({
 
       {!isFailed && (
         <p className="text-sm text-neutral-500 leading-relaxed">
-          Your captions are being generated. When your project is ready you can open it in the
-          editor. You can find all your projects in the Projects tab.
+          {isReady
+            ? 'Your audio descriptions are ready to review. Open the project in the editor, or find it later in the Projects tab.'
+            : 'Your audio descriptions are being generated. When your project is ready you can open it in the editor. You can find all your projects in the Projects tab.'}
         </p>
       )}
 

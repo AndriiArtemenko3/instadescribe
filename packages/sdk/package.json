@@ -1,0 +1,65 @@
+{
+  "name": "@instadescribe/sdk",
+  "version": "1.0.0-beta.1",
+  "description": "Type-safe server-side client for the InstaDescribe Integration API",
+  "homepage": "https://github.com/AndriiArtemenko3/instadescribe#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AndriiArtemenko3/instadescribe.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/AndriiArtemenko3/instadescribe/issues"
+  },
+  "keywords": [
+    "accessibility",
+    "audio-description",
+    "openapi",
+    "sdk",
+    "typescript"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./webhooks": {
+      "types": "./dist/webhooks.d.ts",
+      "import": "./dist/webhooks.js"
+    }
+  },
+  "files": [
+    "dist",
+    "openapi",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "prebuild": "npm run clean",
+    "build": "tsc -p tsconfig.build.json",
+    "openapi:project": "python3 scripts/project_openapi.py",
+    "openapi:check": "python3 scripts/project_openapi.py --check",
+    "codegen": "openapi-ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "0.99.0",
+    "@types/node": "^24.12.0",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.9"
+  },
+  "dependencies": {
+    "zod": "4.3.6"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

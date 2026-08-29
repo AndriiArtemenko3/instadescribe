@@ -8,6 +8,11 @@ export function toScene(raw: PipelineScene, index: number): Scene {
   return {
     id: index + 1,
     sceneNumber: index + 1,
+    // G7: the EXACT canonical pipeline scene id is retained — cloud PATCHes
+    // use it, never a synthesized index. Numeric id/sceneNumber remain for
+    // UI ordering only; they are NOT identity (inputs may be shuffled or
+    // non-contiguous, e.g. scene_2, scene_10).
+    sceneKey: raw.scene_id,
     startSecs: raw.start,
     endSecs: raw.end,
     durationSecs: raw.end - raw.start,

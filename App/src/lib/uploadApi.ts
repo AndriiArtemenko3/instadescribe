@@ -4,9 +4,11 @@
 //                               data_path?, scene_count?, tokens_used? }
 
 import { useAppStore } from '@/store/appStore'
+import { isCloudMode } from './cloudMode'
+import { legacyApiBase } from './runtimeEnv'
 import type { UploadSettings, Project } from '@/types'
 
-const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8765'
+const BASE = legacyApiBase()
 
 export interface SubmitResult {
   jobId: string
@@ -35,6 +37,8 @@ export async function submitJob(
   settings: UploadSettings,
   durationSecs: number,
 ): Promise<SubmitResult> {
+  // G7 B6: no legacy route exists on the cloud-core — never call it there.
+  if (isCloudMode()) throw new Error('Available in the Portfolio Strong release.')
   const form = new FormData()
   form.append('video', file)
   form.append('settings', JSON.stringify({ name: projectName, settings, durationSecs }))
@@ -63,6 +67,8 @@ export async function submitJob(
 }
 
 export async function pollStatus(jobId: string): Promise<PollResult> {
+  // G7 B6: no legacy route exists on the cloud-core — never call it there.
+  if (isCloudMode()) throw new Error('Available in the Portfolio Strong release.')
   const res = await fetch(`${BASE}/api/jobs/${jobId}`)
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
@@ -90,6 +96,8 @@ interface JobsListEntry {
 }
 
 export async function deleteProjectOnServer(id: string): Promise<void> {
+  // G7 B6: no legacy route exists on the cloud-core — never call it there.
+  if (isCloudMode()) throw new Error('Available in the Portfolio Strong release.')
   const res = await fetch(`${BASE}/api/jobs/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(`Delete failed: ${res.status}`)
 }
@@ -98,6 +106,8 @@ export async function patchProjectOnServer(
   id: string,
   patch: { name?: string; starred?: boolean },
 ): Promise<void> {
+  // G7 B6: no legacy route exists on the cloud-core — never call it there.
+  if (isCloudMode()) throw new Error('Available in the Portfolio Strong release.')
   const res = await fetch(`${BASE}/api/jobs/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -114,6 +124,7 @@ let _reconcileInFlight: Promise<void> | null = null
 // Concurrent calls are coalesced — React StrictMode mounts effects twice in dev, and
 // without this guard the second pass races past the existence check and duplicates rows.
 export async function reconcileProjectsWithServer(): Promise<void> {
+  if (isCloudMode()) return // cloud reconciliation lives in cloudProjects.ts
   if (_reconcileInFlight) return _reconcileInFlight
   _reconcileInFlight = (async () => {
     let map: Record<string, JobsListEntry>

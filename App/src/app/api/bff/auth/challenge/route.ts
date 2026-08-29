@@ -1,0 +1,13 @@
+import { handleChallengeGet, handleChallengePost } from '@/server/bff/handlers'
+import { getBffDependencies } from '@/server/bff/runtime-dependencies'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+export function GET(request: Request) {
+  return handleChallengeGet(request, getBffDependencies())
+}
+
+export function POST(request: Request) {
+  return handleChallengePost(request, getBffDependencies())
+}

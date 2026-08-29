@@ -2,12 +2,13 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowRight, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/appStore'
-import type { Project } from '@/types'
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
+  getAvailableTutorial,
   LENGTH_LABELS,
   LENGTH_ORDER,
+  tutorialProject,
   type Tutorial,
   TUTORIALS,
 } from '@/lib/tutorials'
@@ -29,26 +30,15 @@ function TutorialCard({ tutorial }: { tutorial: Tutorial }) {
   const navigate = useNavigate()
   const projects = useAppStore((s) => s.projects)
   const addProject = useAppStore((s) => s.addProject)
-  const available = tutorial.status === 'available'
+  const availableTutorial = getAvailableTutorial(tutorial.id)
+  const available = availableTutorial !== undefined
 
   function start() {
-    if (!available) return
+    if (!availableTutorial) return
     if (!projects.some((p) => p.id === tutorial.id)) {
-      const project: Project = {
-        id: tutorial.id,
-        name: tutorial.title,
-        status: 'ready',
-        createdAt: new Date().toISOString(),
-        durationSecs: tutorial.durationSecs,
-        sceneCount: tutorial.sceneCount,
-        videoFile: tutorial.videoFile,
-        dataPath: tutorial.dataPath,
-        posterUrl: tutorial.posterUrl,
-        posterAvifUrl: tutorial.posterAvifUrl,
-      }
-      addProject(project)
+      addProject(tutorialProject(availableTutorial))
     }
-    navigate(`/editor/${tutorial.id}`)
+    navigate(`/tutorials/${tutorial.id}/editor`)
   }
 
   return (
@@ -108,7 +98,7 @@ export default function TutorialsPage() {
     <div className="min-h-screen bg-neutral-50">
       <div className="mx-auto max-w-5xl px-5 py-10">
         <header className="mb-8">
-          <div className="text-sm font-semibold tracking-tight text-neutral-900">InstaScribe</div>
+          <div className="text-sm font-semibold tracking-tight text-neutral-900">InstaDescribe</div>
           <h1 className="mt-3 text-2xl font-semibold text-neutral-900">Try a tutorial</h1>
           <p className="mt-2 max-w-2xl text-sm leading-relaxed text-neutral-500">
             Audio description is spoken narration of what happens on screen — actions, settings, and
