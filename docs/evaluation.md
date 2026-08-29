@@ -1,6 +1,6 @@
 # AD-quality evaluation
 
-InstaScribe scores its own audio-description output against a rubric, so mechanical
+InstaDescribe scores its own audio-description output against a rubric, so mechanical
 problems surface in the editor before a single line is rendered. The scorer is pure
 and dependency-free: the same logic runs in the API (`modular_pipeline/evaluation.py`),
 in the editor's Quality tab (`App/src/lib/evaluation.ts`), and in tests. A shared

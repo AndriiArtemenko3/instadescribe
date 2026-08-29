@@ -1,0 +1,39 @@
+name: Feature request
+description: Propose a product or integration capability for the public beta.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow and problem
+      description: Describe the CMS, DAM, CI, review or accessibility-authoring workflow and the problem to solve.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the observable result without prescribing an implementation.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Primary surface
+      options:
+        - Integration API
+        - Web App / review
+        - TypeScript SDK
+        - CLI
+        - Media pipeline / deliverables
+        - Operations / deployment
+        - Documentation
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints or compatibility needs
+      description: Optional standards, formats, scale or deployment constraints. Do not include confidential information.
