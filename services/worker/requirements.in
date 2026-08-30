@@ -28,7 +28,7 @@ torchaudio==2.11.*
 setuptools>=83.0.0
 
 # Numerics + media
-numpy>=1.26,<2.0
+numpy>=2.5.2,<3.0
 Pillow>=12.3.0
 
 # Export formats (exports.py — same image serves the G5 export path)
