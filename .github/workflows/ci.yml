@@ -57,6 +57,32 @@ jobs:
       - name: Test
         run: pytest -q
 
+  worker-runtime-lock:
+    name: Worker runtime lock (Python 3.12, linux/amd64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            services/worker/requirements.txt
+            requirements-local.txt
+      - name: Verify worker intent and exact lock contract
+        run: python services/worker/scripts/verify_worker_lock.py
+      - name: Install the exact production worker lock and local audio floor
+        run: >-
+          python -m pip install --disable-pip-version-check --no-input
+          -r services/worker/requirements.txt soundfile==0.14.0
+      - name: Verify the installed dependency graph
+        run: python -m pip check
+      - name: Exercise worker and local audio runtime behaviours
+        run: python services/worker/scripts/dependency_runtime_smoke.py --profile all
+
   cloud-api:
     name: Cloud API (Python 3.12 + PostgreSQL)
     runs-on: ubuntu-latest
