@@ -12,7 +12,7 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Vision/text/TTS provider clients (OpenAI SDK also backs gemini/local compat paths)
-openai>=1.0
+openai>=3.5.0
 python-dotenv>=1.0
 
 # Audio: speech detection + transcription for gap-aware AD placement.
