@@ -69,7 +69,7 @@ s3transfer==0.19.2
     # via boto3
 six==1.17.0
     # via python-dateutil
-sqlalchemy==2.0.51
+sqlalchemy==2.0.52
     # via
     #   -r requirements.in
     #   alembic
