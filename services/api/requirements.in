@@ -14,7 +14,7 @@ pydantic>=2
 # (ADR-0002). Alembic ships in the runtime set because migrations run as a
 # one-off task using this image (spec §15).
 sqlalchemy>=2.0.52
-alembic>=1.13
+alembic>=1.19.1
 psycopg[binary]>=3.1
 pydantic-settings>=2.15.0
 
