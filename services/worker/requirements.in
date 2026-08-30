@@ -21,7 +21,7 @@ python-dotenv>=1.0
 # to the audited 2.13 minor. The G5 image build still exercises a real
 # torchaudio op (not just imports) to keep this pair honest.
 faster-whisper>=1.0
-silero-vad>=5.0
+silero-vad>=6.2.1
 torch>=2.13,<2.14
 torchaudio==2.11.*
 # Security floor for the setuptools runtime dependency pulled by torch.
@@ -29,15 +29,15 @@ setuptools>=83.0.0
 
 # Numerics + media
 numpy>=1.26,<2.0
-Pillow>=10.0
+Pillow>=12.3.0
 
 # Export formats (exports.py — same image serves the G5 export path)
 python-docx>=1.0
 
 # G5 worker runtime: queue/object-store clients, canonical persistence and
 # fail-fast configuration (same major lines as services/api/requirements.txt).
-boto3>=1.34
-SQLAlchemy>=2.0
+boto3>=1.43.81
+SQLAlchemy>=2.0.52
 psycopg[binary]>=3.1
 pydantic>=2.7
-pydantic-settings>=2.2
+pydantic-settings>=2.15.0

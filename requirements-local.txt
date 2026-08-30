@@ -10,4 +10,4 @@
 # on the torch already pinned in requirements.txt; weights (~330MB) download on
 # first use. On Linux, Kokoro's g2p may also need espeak-ng (`apt install espeak-ng`).
 kokoro>=0.9
-soundfile>=0.12
+soundfile>=0.14.0

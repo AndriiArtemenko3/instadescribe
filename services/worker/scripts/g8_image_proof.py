@@ -4,7 +4,8 @@
 Asserts, against the FRESH image tag (INSTADESCRIBE_WORKER_IMAGE, default
 instadescribe-worker:g8): linux/amd64; pinned base digest and Whisper snapshot
 revision baked and resolvable offline; HF_HUB_OFFLINE=1; the exercised
-torch/torchaudio operation gate; non-root UID 10001; forbidden assets absent
+worker dependency behaviours (including TorchAudio and bundled Silero JIT);
+non-root UID 10001; forbidden assets absent
 (fixture, smoke script, tests, .env, media, job data, handoffs); the current
 API model/domain copy imports from inside the image; exact image ID, created
 time and unpacked/compressed sizes. Exits nonzero on the first violation and
@@ -19,6 +20,7 @@ import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from dependency_runtime_smoke import parse_smoke_output  # noqa: E402
 from g8_source_digest import production_source_digest  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[3]
@@ -27,6 +29,7 @@ from instadescribe_contracts.environment import getenv_compat  # noqa: E402
 
 IMAGE = getenv_compat("INSTADESCRIBE_WORKER_IMAGE") or "instadescribe-worker:g8"
 DOCKERFILE = REPO / "services" / "worker" / "Dockerfile"
+DEPENDENCY_SMOKE = REPO / "services" / "worker" / "scripts" / "dependency_runtime_smoke.py"
 
 # A conservative image-reference shape: name[:tag][@digest] with no shell
 # metacharacters — rejected BEFORE any subprocess runs (G8.1 E).
@@ -85,6 +88,36 @@ def in_image(shell: str, timeout: int = 300) -> str:
             IMAGE,
             "-c",
             shell,
+        ],
+        timeout=timeout,
+    )
+
+
+def dependency_smoke_in_image(timeout: int = 600) -> str:
+    """Run the current worker smoke against the final image with no network.
+
+    The proof script is bind-mounted read-only rather than shipped in the
+    production image.  Its worker profile exercises only packages that belong
+    to the exact production lock; SoundFile remains a local/Kokoro dependency.
+    """
+
+    return run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--platform",
+            "linux/amd64",
+            "--network",
+            "none",
+            "--mount",
+            f"type=bind,source={DEPENDENCY_SMOKE},target=/tmp/dependency_runtime_smoke.py,readonly",
+            "--entrypoint",
+            "python",
+            IMAGE,
+            "/tmp/dependency_runtime_smoke.py",
+            "--profile",
+            "worker",
         ],
         timeout=timeout,
     )
@@ -156,18 +189,17 @@ def main() -> None:
         die("offline model resolution failed inside the image")
     evidence["whisper_offline_resolution"] = "ok"
 
-    # Dependency/torchaudio operation gate still passes in the final image.
-    audio = in_image(
-        'pip check && python -c "'
-        "import torch, torchaudio; import torchaudio.functional as F; "
-        "w = torch.sin(torch.linspace(0, 3140.0, 16000)).unsqueeze(0); "
-        "o = F.resample(w, 16000, 8000); assert o.shape == (1, 8000); "
-        "print('audio-op-ok', torch.__version__, torchaudio.__version__)\"",
-        timeout=600,
-    )
-    if "audio-op-ok" not in audio:
-        die("torch/torchaudio operation gate failed in the final image")
-    evidence["audio_gate"] = audio.strip().splitlines()[-1]
+    # The final image must remain resolver-consistent, then pass real worker
+    # dependency behaviours with Docker networking disabled.  This covers the
+    # audio ABI, bundled Silero JIT, settings, boto3 and SQLAlchemy seams.
+    in_image("pip check", timeout=600)
+    try:
+        dependency_smoke = parse_smoke_output(dependency_smoke_in_image())
+    except (json.JSONDecodeError, ValueError) as exc:
+        die(f"dependency runtime smoke returned invalid evidence: {exc}")
+    if dependency_smoke.get("status") != "ok" or dependency_smoke.get("profile") != "worker":
+        die(f"dependency runtime smoke returned unexpected evidence: {dependency_smoke}")
+    evidence["dependency_runtime_smoke"] = dependency_smoke["checks"]
 
     absent = in_image(
         "set -e; "
