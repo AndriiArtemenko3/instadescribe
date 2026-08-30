@@ -8,8 +8,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+import { isCloudMode } from '@/lib/cloudMode'
 import type { Project } from '@/types'
 import { formatDuration, formatTokens, formatDate, STATUS_STYLES, STATUS_LABELS } from '../utils/formatters'
+import { CloudCompletionButton } from './CloudCompletionButton'
 
 interface ProjectCardProps {
   project: Project
@@ -22,6 +24,7 @@ export function ProjectCard({ project, onRename, onDelete, onToggleStar }: Proje
   const navigate = useNavigate()
 
   function handleCardClick() {
+    if (project.status === 'confirmation_pending') return
     navigate(`/editor/${project.id}`)
   }
 
@@ -42,7 +45,10 @@ export function ProjectCard({ project, onRename, onDelete, onToggleStar }: Proje
 
   return (
     <article
-      className="group relative flex flex-col overflow-hidden rounded-lg border border-neutral-200 bg-neutral-0 shadow-card transition-all hover:shadow-modal hover:border-neutral-300 cursor-pointer"
+      className={cn(
+        'group relative flex flex-col overflow-hidden rounded-lg border border-neutral-200 bg-neutral-0 shadow-card transition-all hover:shadow-modal hover:border-neutral-300',
+        project.status === 'confirmation_pending' ? 'cursor-default' : 'cursor-pointer',
+      )}
       onClick={handleCardClick}
     >
       {/* Thumbnail */}
@@ -95,6 +101,7 @@ export function ProjectCard({ project, onRename, onDelete, onToggleStar }: Proje
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
+              aria-label={`Project actions for ${project.name}`}
               className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-md bg-neutral-0/80 text-neutral-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-neutral-0"
               onClick={(e) => e.stopPropagation()}
             >
@@ -106,10 +113,17 @@ export function ProjectCard({ project, onRename, onDelete, onToggleStar }: Proje
             className="w-44"
             onClick={(e) => e.stopPropagation()}
           >
-            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/editor/${project.id}`) }}>
-              <ExternalLink className="mr-2 h-4 w-4" />
-              Open editor
-            </DropdownMenuItem>
+            {project.status === 'confirmation_pending' ? (
+              <DropdownMenuItem disabled>
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Editor available after confirmation
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/editor/${project.id}`) }}>
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Open editor
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onToggleStar?.(project.id) }}>
               <Star className={cn('mr-2 h-4 w-4', project.starred && 'fill-current')} />
@@ -118,12 +132,18 @@ export function ProjectCard({ project, onRename, onDelete, onToggleStar }: Proje
             <DropdownMenuItem onClick={handleRename}>
               Rename
             </DropdownMenuItem>
-            <DropdownMenuItem
-              className="text-danger-400 focus:text-danger-400"
-              onClick={handleDelete}
-            >
-              Delete
-            </DropdownMenuItem>
+            {isCloudMode() ? (
+              <DropdownMenuItem disabled className="text-neutral-400">
+                Delete — not available yet
+              </DropdownMenuItem>
+            ) : (
+                <DropdownMenuItem
+                  className="text-danger-400 focus:text-danger-400"
+                  onClick={handleDelete}
+                >
+                  Delete
+                </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -146,6 +166,15 @@ export function ProjectCard({ project, onRename, onDelete, onToggleStar }: Proje
           <Stat icon={<Cpu size={12} />} label="Model" value={project.model ?? '—'} />
           <Stat icon={<Coins size={12} />} label="Tokens" value={formatTokens(project.tokensUsed)} />
         </div>
+
+        {project.status === 'confirmation_pending' && (
+          <div className="space-y-2 border-t border-neutral-150 pt-3">
+            <p className="text-xs leading-relaxed text-neutral-500">
+              Your video is uploaded. Confirm this same job when the processing slot is available.
+            </p>
+            <CloudCompletionButton project={project} />
+          </div>
+        )}
       </div>
     </article>
   )

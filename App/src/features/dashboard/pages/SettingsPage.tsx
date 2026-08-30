@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAppStore } from '@/store/appStore'
 import { Button } from '@/components/ui/button'
@@ -8,8 +8,16 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProviderPicker } from '../components/ProviderPicker'
+import { cloudApiBase, isCloudMode } from '@/lib/cloudMode'
+import { probeCloudHealth } from '@/lib/cloudApi'
+import { clearCurrentModeDrafts, getDraftStorageStats } from '@/lib/persistence'
+import {
+  isDevelopmentRuntime,
+  legacyApiBase,
+  publicApiBaseOverride,
+} from '@/lib/runtimeEnv'
 
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8765'
+const LEGACY_API_BASE = legacyApiBase()
 const APP_VERSION = '0.1.0-dev'
 
 type Connection = 'pending' | 'connected' | 'offline'
@@ -47,18 +55,6 @@ function FieldRow({
   )
 }
 
-function countLocalEdits(): { keys: number; bytes: number } {
-  let keys = 0
-  let bytes = 0
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i)
-    if (!k || !k.startsWith('instascribe:')) continue
-    keys += 1
-    bytes += (localStorage.getItem(k) ?? '').length
-  }
-  return { keys, bytes }
-}
-
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
@@ -70,20 +66,27 @@ export default function SettingsPage() {
   const user = useAppStore((s) => s.currentUser)
   const logout = useAppStore((s) => s.logout)
   const projects = useAppStore((s) => s.projects)
+  const cloud = isCloudMode()
+  const displayedBase = cloud ? (cloudApiBase() || 'Same origin') : LEGACY_API_BASE
 
   const [connection, setConnection] = useState<Connection>('pending')
   const [lastPingMs, setLastPingMs] = useState<number | null>(null)
   const [pinging, setPinging] = useState(false)
-  const [localStats, setLocalStats] = useState(() => countLocalEdits())
+  const [draftStats, setDraftStats] = useState(() => getDraftStorageStats())
   const [confirmClear, setConfirmClear] = useState(false)
 
-  async function ping() {
+  const ping = useCallback(async () => {
     setPinging(true)
     const t0 = performance.now()
     try {
-      const res = await fetch(`${API_BASE}/api/jobs`, { method: 'GET' })
+      // G7.1 D8: cloud mode pings the PUBLIC cloud liveness route through
+      // the audited helper (base validation + hardened fetch, no token) —
+      // no legacy /api/jobs request in cloud mode.
+      const ok = cloud
+        ? await probeCloudHealth()
+        : (await fetch(`${LEGACY_API_BASE}/api/jobs`, { method: 'GET' })).ok
       const dt = Math.round(performance.now() - t0)
-      setConnection(res.ok ? 'connected' : 'offline')
+      setConnection(ok ? 'connected' : 'offline')
       setLastPingMs(dt)
     } catch {
       setConnection('offline')
@@ -91,18 +94,13 @@ export default function SettingsPage() {
     } finally {
       setPinging(false)
     }
-  }
+  }, [cloud])
 
-  useEffect(() => { ping() }, [])
+  useEffect(() => { ping() }, [ping])
 
-  function clearLocalEdits() {
-    const toRemove: string[] = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
-      if (k && k.startsWith('instascribe:') && k.endsWith(':edits')) toRemove.push(k)
-    }
-    toRemove.forEach((k) => localStorage.removeItem(k))
-    setLocalStats(countLocalEdits())
+  function clearDraftEdits() {
+    clearCurrentModeDrafts()
+    setDraftStats(getDraftStorageStats())
     setConfirmClear(false)
   }
 
@@ -165,11 +163,13 @@ export default function SettingsPage() {
                   : connection === 'offline'
                     ? <WifiOff size={14} className="text-danger-400" />
                     : <Wifi size={14} />}
-                label="Pipeline server"
+                label={cloud ? 'Cloud API' : 'Pipeline server'}
                 hint={connection === 'connected'
                   ? `Reachable in ${lastPingMs ?? '—'} ms`
                   : connection === 'offline'
-                    ? 'Cannot reach the server — start it with `python3 server.py` in modular_pipeline/.'
+                    ? cloud
+                      ? 'Cloud API health check failed. Processing may be temporarily unavailable.'
+                      : 'Cannot reach the server — start it with `python3 server.py` in modular_pipeline/.'
                     : 'Checking…'}
                 value={
                   <button
@@ -184,12 +184,16 @@ export default function SettingsPage() {
               />
               <FieldRow
                 label="Base URL"
-                value={<code className="font-mono text-xs">{API_BASE}</code>}
+                value={<code className="font-mono text-xs">{displayedBase}</code>}
               />
               <FieldRow
-                label="Override"
-                hint="Set VITE_API_BASE in App/.env.local to point at a non-local server."
-                value={import.meta.env.VITE_API_BASE
+                label={cloud ? 'Routing' : 'Override'}
+                hint={cloud
+                  ? 'Development uses the validated FastAPI loopback; production uses CloudFront same-origin /api/* routing.'
+                  : 'Set VITE_API_BASE (Vite) or NEXT_PUBLIC_API_BASE (Next.js) to point at a non-local server.'}
+                value={cloud
+                  ? <span className="text-neutral-500">{isDevelopmentRuntime() ? 'loopback' : 'same origin'}</span>
+                  : publicApiBaseOverride() !== undefined
                   ? <span className="text-success-400">set</span>
                   : <span className="text-neutral-400">default</span>}
               />
@@ -199,22 +203,31 @@ export default function SettingsPage() {
           <section className="flex flex-col gap-4">
             <SectionHeading>Model provider</SectionHeading>
             <Card>
-              <ProviderPicker />
+              {isCloudMode() ? (
+                <p className="p-4 text-sm text-neutral-500">
+                  Provider selection is available in the Portfolio Strong
+                  release. The cloud demo runs the built-in fake provider.
+                </p>
+              ) : (
+                <ProviderPicker />
+              )}
             </Card>
           </section>
 
           <section className="flex flex-col gap-4">
-            <SectionHeading>Local storage</SectionHeading>
+            <SectionHeading>{cloud ? 'Session storage' : 'Local storage'}</SectionHeading>
             <Card>
               <FieldRow
                 icon={<Database size={14} />}
                 label="Projects in store"
-                hint="Cached on this device; the server is still the source of truth."
+                hint={cloud
+                  ? 'Session metadata reconciled authoritatively from the cloud API.'
+                  : 'Cached on this device; the server is still the source of truth.'}
                 value={projects.length}
               />
               <FieldRow
                 label="Cached scene edits"
-                hint={`${localStats.keys} ${localStats.keys === 1 ? 'project' : 'projects'} · ${formatBytes(localStats.bytes)}`}
+                hint={`${draftStats.keys} ${draftStats.keys === 1 ? 'project' : 'projects'} · ${formatBytes(draftStats.bytes)} · ${draftStats.scope} storage`}
                 value={
                   confirmClear ? (
                     <span className="inline-flex gap-1">
@@ -225,7 +238,7 @@ export default function SettingsPage() {
                         variant="default"
                         size="sm"
                         className="bg-danger-400 hover:bg-danger-400/90"
-                        onClick={clearLocalEdits}
+                        onClick={clearDraftEdits}
                       >
                         Clear all
                       </Button>
@@ -235,7 +248,7 @@ export default function SettingsPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => setConfirmClear(true)}
-                      disabled={localStats.keys === 0}
+                      disabled={draftStats.keys === 0}
                     >
                       Clear cached edits
                     </Button>
@@ -243,7 +256,7 @@ export default function SettingsPage() {
                 }
               />
               <p className="pt-3 text-xs text-neutral-400">
-                Server-side overrides survive — only this device's draft edits get removed.
+                Server-side overrides survive — only InstaDescribe draft keys in this {draftStats.scope} are removed. Access tokens and session metadata are preserved.
               </p>
             </Card>
           </section>
@@ -252,7 +265,7 @@ export default function SettingsPage() {
             <SectionHeading>About</SectionHeading>
             <Card>
               <FieldRow label="Version" value={APP_VERSION} />
-              <FieldRow label="Environment" value={import.meta.env.DEV ? 'development' : 'production'} />
+              <FieldRow label="Environment" value={isDevelopmentRuntime() ? 'development' : 'production'} />
               <FieldRow
                 label="Documentation"
                 value={

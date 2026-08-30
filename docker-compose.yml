@@ -1,0 +1,147 @@
+# InstaDescribe local cloud stack — PostgreSQL 16 + LocalStack (S3/SQS) + the
+# FastAPI service + the G5 production worker (opt-in via `--profile worker`).
+# Images are version-pinned (no floating latest tags). The Compose project,
+# database, bucket and queue retain their v0.1 physical names so existing
+# local volumes and rollback tooling are not orphaned by the product rename.
+name: instascribe-cloud-core
+
+services:
+  postgres:
+    image: postgres:16.14
+    environment:
+      POSTGRES_USER: instascribe
+      # Local compose stack only — a placeholder, never a real credential.
+      POSTGRES_PASSWORD: local-dev-only
+      POSTGRES_DB: instascribe
+    ports:
+      # Loopback-only: placeholder dev credentials must never listen on every interface.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U instascribe -d instascribe"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  localstack:
+    # 4.x is the community (Apache-2.0) line; the CalVer 2026.x images are the
+    # licensed distribution and exit(55) without an auth token.
+    image: localstack/localstack:4.14.0
+    environment:
+      SERVICES: s3,sqs
+      AWS_DEFAULT_REGION: eu-west-2
+    ports:
+      - "127.0.0.1:4566:4566"
+    volumes:
+      - ./infrastructure/localstack/01-bootstrap.sh:/etc/localstack/init/ready.d/01-bootstrap.sh:ro
+      - ./infrastructure/localstack/02-verify.sh:/etc/localstack/init/ready.d/02-verify.sh:ro
+      - ./infrastructure/localstack/healthcheck.sh:/usr/local/bin/g1-healthcheck:ro
+    healthcheck:
+      # Healthy only when the service is up AND every ready.d init script
+      # (bootstrap + verify) finished SUCCESSFUL — a cold-stack success
+      # therefore proves the bootstrap completed and asserted clean.
+      test: ["CMD", "/usr/local/bin/g1-healthcheck"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+
+  # One-shot migration gate: `alembic upgrade head` must complete before the
+  # API is considered available (production analogue: an explicit one-off task
+  # before service rollout at G9). Never create_all(), never race schemas.
+  migrate:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    command: ["alembic", "-c", "/srv/alembic.ini", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://instascribe:local-dev-only@postgres:5432/instascribe
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      # Same placeholder credential as the postgres service — local stack only.
+      DATABASE_URL: postgresql+psycopg://instascribe:local-dev-only@postgres:5432/instascribe
+      # SHA-256 of the documented local dev token "local-dev-token" — a
+      # placeholder for the local stack only; production digests come from
+      # Secrets Manager and are never committed.
+      PORTFOLIO_TOKEN_SHA256: 0cd48eed49739dfdd99efaef37d251aae5a80866e5954763c6597943fff5ce9b # gitleaks:allow
+      # Local-only HMAC pepper for integration API-key fixtures. Production
+      # receives a separately managed value from Secrets Manager.
+      INSTADESCRIBE_API_KEY_PEPPER: local-development-api-key-pepper-000000000000
+      # Immutable server-supplied provenance; 'dev' locally by design.
+      INSTADESCRIBE_PIPELINE_REVISION: dev
+      INSTADESCRIBE_MEDIA_BUCKET: instascribe-media
+      # Split S3 endpoint views (configuration lands at G1; first SDK consumer is G3):
+      # container-internal SDK calls vs browser-visible presigned URLs — presigned
+      # URLs must never leak the `localstack` hostname to the browser.
+      INSTADESCRIBE_S3_ENDPOINT_INTERNAL: http://localstack:4566
+      INSTADESCRIBE_S3_ENDPOINT_PUBLIC: http://localhost:4566
+      INSTADESCRIBE_S3_FORCE_PATH_STYLE: "1"
+      INSTADESCRIBE_SQS_ENDPOINT_INTERNAL: http://localstack:4566
+      AWS_DEFAULT_REGION: eu-west-2
+      # LocalStack's canonical dummy values — placeholders, not real credentials.
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz', timeout=2).status == 200 else 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # G5 production worker — opt-in profile so ordinary API/test runs never
+  # start a consumer against the development queue. Production-shaped local
+  # limits (ECS Fargate analogue): linux/amd64, 2 vCPU, 8 GiB, concurrency
+  # one (the consumer processes a single message at a time by design).
+  # No inbound ports — the worker only polls SQS and talks to S3/PostgreSQL.
+  worker:
+    profiles: ["worker"]
+    # Selectable so G8+ acceptance targets run the FRESHLY rebuilt production
+    # image rather than a stale tag; plain `docker compose` keeps the G5 tag.
+    image: ${INSTADESCRIBE_WORKER_IMAGE:-instadescribe-worker:g5}
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+      target: production
+    platform: linux/amd64
+    cpus: 2
+    mem_limit: 8g
+    environment:
+      # Same placeholder credentials as the rest of the local stack.
+      DATABASE_URL: postgresql+psycopg://instascribe:local-dev-only@postgres:5432/instascribe
+      INSTADESCRIBE_WORK_QUEUE_URL: http://localstack:4566/000000000000/instascribe-work
+      INSTADESCRIBE_MEDIA_BUCKET: instascribe-media
+      INSTADESCRIBE_S3_ENDPOINT_INTERNAL: http://localstack:4566
+      INSTADESCRIBE_SQS_ENDPOINT_INTERNAL: http://localstack:4566
+      INSTADESCRIBE_WORKER_ID: worker-local-1
+      # Provenance binding (G5.1 B4): must equal the API's revision or jobs
+      # fail deterministically as pipeline_revision_mismatch.
+      INSTADESCRIBE_PIPELINE_REVISION: dev
+      AWS_DEFAULT_REGION: eu-west-2
+      # LocalStack's canonical dummy values — placeholders, not real credentials.
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

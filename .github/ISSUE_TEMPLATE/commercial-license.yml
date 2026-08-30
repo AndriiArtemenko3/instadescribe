@@ -1,0 +1,43 @@
+name: Commercial-license inquiry
+description: Start a public, non-confidential conversation about production use of the InstaDescribe core.
+title: "[Commercial license]: "
+labels:
+  - commercial-license
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue is public. Include only a short, non-confidential summary. Do not post credentials, customer data, private architecture, pricing expectations, contract terms or other sensitive information. Opening this issue does not grant production rights or create an agreement.
+  - type: input
+    id: organization
+    attributes:
+      label: Organization or GitHub account
+      description: A public organization name or GitHub handle is sufficient.
+    validations:
+      required: true
+  - type: dropdown
+    id: use
+    attributes:
+      label: Intended use
+      options:
+        - Internal production workflow
+        - Customer-facing product integration
+        - Hosted or managed service
+        - Commercial redistribution
+        - Evaluation before production
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Non-confidential summary
+      description: Briefly describe the intended integration and approximate evaluation timeline.
+    validations:
+      required: true
+  - type: checkboxes
+    id: acknowledgement
+    attributes:
+      label: Acknowledgement
+      options:
+        - label: I understand this issue is public and does not itself grant any additional license rights.
+          required: true

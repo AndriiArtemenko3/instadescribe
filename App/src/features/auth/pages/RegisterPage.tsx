@@ -27,12 +27,12 @@ export default function RegisterPage() {
         <CardHeader className="space-y-2">
           <div className="inline-flex items-center gap-2">
           <Logo size={24} className="text-brand-400" />
-            <span className="font-mono text-sm font-medium">InstaScribe</span>
+            <span className="font-mono text-sm font-medium">InstaDescribe</span>
           </div>
           <div className="space-y-1">
             <h1 className="text-lg font-medium">Create account</h1>
             <p className="text-sm text-muted-foreground">
-              Get started with InstaScribe
+              Get started with InstaDescribe
             </p>
           </div>
         </CardHeader>

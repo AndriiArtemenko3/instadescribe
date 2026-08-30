@@ -1,4 +1,4 @@
-"""Logging setup for the InstaScribe server."""
+"""Logging setup for the InstaDescribe server."""
 
 from __future__ import annotations
 

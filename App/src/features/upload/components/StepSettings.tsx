@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { HelpCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { isCloudMode } from '@/lib/cloudMode'
 import { FileHeader } from './FileHeader'
 import type { UploadSettings } from '@/types'
 
@@ -108,7 +109,12 @@ function PillRadio<T extends string>({
 
 const MODES: { value: UploadSettings['mode']; label: string; sub: string }[] = [
   { value: 'cheap',  label: 'Cheap Mode',     sub: 'Lowest cost · GPT-4.1 · 0.5 fps' },
-  { value: 'normal', label: 'Normal Mode',    sub: 'Balanced · GPT-5.4 · 1 fps' },
+  {
+    value: 'normal',
+    label: 'Normal Mode',
+    // The cloud contract offers gpt-4.1 only (G7); legacy keeps GPT-5.4.
+    sub: isCloudMode() ? 'Balanced · GPT-4.1 · 1 fps' : 'Balanced · GPT-5.4 · 1 fps',
+  },
   { value: 'custom', label: 'Custom Settings', sub: 'Configure each parameter manually' },
 ]
 
@@ -130,10 +136,14 @@ function CustomPanel({ settings, onChange }: CustomPanelProps) {
         <RadioRow
           value={settings.model}
           onChange={(v) => onChange({ model: v })}
-          options={[
-            { value: 'gpt-4.1', label: 'ChatGPT 4.1', sub: 'Efficient · lower cost' },
-            { value: 'gpt-5.4', label: 'ChatGPT 5.4', sub: 'Best quality · higher cost' },
-          ]}
+          options={
+            isCloudMode()
+              ? [{ value: 'gpt-4.1', label: 'ChatGPT 4.1', sub: 'Efficient · lower cost' }]
+              : [
+                  { value: 'gpt-4.1', label: 'ChatGPT 4.1', sub: 'Efficient · lower cost' },
+                  { value: 'gpt-5.4', label: 'ChatGPT 5.4', sub: 'Best quality · higher cost' },
+                ]
+          }
         />
       </div>
 
@@ -143,11 +153,18 @@ function CustomPanel({ settings, onChange }: CustomPanelProps) {
         <RadioRow
           value={settings.fps}
           onChange={(v) => onChange({ fps: v })}
-          options={[
-            { value: 0.5, label: '0.5 fps', sub: 'Light · budget' },
-            { value: 1,   label: '1 fps',   sub: 'Standard · default' },
-            { value: 8,   label: '8 fps',   sub: 'Dynamic · action content' },
-          ]}
+          options={
+            isCloudMode()
+              ? [
+                  { value: 0.5, label: '0.5 fps', sub: 'Light · budget' },
+                  { value: 1, label: '1 fps', sub: 'Standard · default' },
+                ]
+              : [
+                  { value: 0.5, label: '0.5 fps', sub: 'Light · budget' },
+                  { value: 1, label: '1 fps', sub: 'Standard · default' },
+                  { value: 8, label: '8 fps', sub: 'Dynamic · action content' },
+                ]
+          }
         />
       </div>
 
@@ -157,10 +174,14 @@ function CustomPanel({ settings, onChange }: CustomPanelProps) {
         <RadioRow
           value={settings.frameQuality}
           onChange={(v) => onChange({ frameQuality: v })}
-          options={[
-            { value: 'low',  label: 'Low',  sub: 'Cost-efficient · default' },
-            { value: 'high', label: 'High', sub: 'More detail per frame' },
-          ]}
+          options={
+            isCloudMode()
+              ? [{ value: 'low', label: 'Low', sub: 'Cost-efficient · default' }]
+              : [
+                  { value: 'low', label: 'Low', sub: 'Cost-efficient · default' },
+                  { value: 'high', label: 'High', sub: 'More detail per frame' },
+                ]
+          }
         />
       </div>
 
@@ -170,11 +191,18 @@ function CustomPanel({ settings, onChange }: CustomPanelProps) {
         <RadioRow
           value={settings.chunkSizeSecs}
           onChange={(v) => onChange({ chunkSizeSecs: v })}
-          options={[
-            { value: 30,  label: '30s',  sub: 'Fine-grained' },
-            { value: 60,  label: '60s',  sub: 'Balanced' },
-            { value: 120, label: '120s', sub: 'Fewer API calls' },
-          ]}
+          options={
+            isCloudMode()
+              ? [
+                  { value: 60, label: '60s', sub: 'Balanced' },
+                  { value: 120, label: '120s', sub: 'Fewer API calls' },
+                ]
+              : [
+                  { value: 30, label: '30s', sub: 'Fine-grained' },
+                  { value: 60, label: '60s', sub: 'Balanced' },
+                  { value: 120, label: '120s', sub: 'Fewer API calls' },
+                ]
+          }
         />
       </div>
 

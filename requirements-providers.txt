@@ -1,8 +1,8 @@
 # Optional cloud model backends beyond OpenAI. Install only if you use them.
 #
-# Anthropic (Claude) backend — INSTASCRIBE_BACKEND=anthropic:
+# Anthropic (Claude) backend — INSTADESCRIBE_BACKEND=anthropic:
 anthropic>=0.40
 #
-# Gemini backend — INSTASCRIBE_BACKEND=gemini — needs NO extra package: it reuses
+# Gemini backend — INSTADESCRIBE_BACKEND=gemini — needs NO extra package: it reuses
 # the `openai` client (already in requirements.txt) against Gemini's
 # OpenAI-compatibility endpoint. Just set GEMINI_API_KEY.

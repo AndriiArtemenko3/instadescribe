@@ -1,9 +1,9 @@
 """Runtime provider selection.
 
-Pick a backend for everything at once with INSTASCRIBE_BACKEND, or override one
+Pick a backend for everything at once with INSTADESCRIBE_BACKEND, or override one
 capability at a time:
 
-    INSTASCRIBE_BACKEND = openai | local | anthropic | gemini | fake   (default: openai)
+    INSTADESCRIBE_BACKEND = openai | local | anthropic | gemini | fake (default: openai)
     VISION_PROVIDER / TEXT_PROVIDER / TTS_PROVIDER                     (per capability)
 
 `local` means Ollama for vision + text and Kokoro for TTS. `anthropic` (Claude)
@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import os
 
+from environment import getenv_compat
+
 from .base import TextProvider, TTSProvider, VisionProvider
 
 # `local` is the friendly umbrella name; vision + text under it run on Ollama.
@@ -25,7 +27,7 @@ _ALIASES = {"local": "ollama"}
 VALID_BACKENDS = ("openai", "anthropic", "gemini", "local", "fake")
 
 # Runtime backend override, set from the app's Settings picker (POST /api/providers).
-# None means fall back to the INSTASCRIBE_BACKEND env var / default.
+# None means fall back to the INSTADESCRIBE_BACKEND env var / default.
 _OVERRIDE: str | None = None
 
 
@@ -40,14 +42,14 @@ def set_active_backend(name: str) -> None:
 
 def active_backend() -> str:
     """The effective backend the UI shows and new jobs run under (friendly name)."""
-    return _OVERRIDE or os.getenv("INSTASCRIBE_BACKEND") or "openai"
+    return _OVERRIDE or getenv_compat("INSTADESCRIBE_BACKEND") or "openai"
 
 
 def _resolve(capability_env: str, default_backend: str = "openai") -> str:
     backend = (
         os.getenv(capability_env)
         or _OVERRIDE
-        or os.getenv("INSTASCRIBE_BACKEND")
+        or getenv_compat("INSTADESCRIBE_BACKEND")
         or default_backend
     )
     backend = backend.strip().lower()

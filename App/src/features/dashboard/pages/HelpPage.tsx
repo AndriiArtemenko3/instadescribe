@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { BookOpen, Cpu, Mic, Sparkles, Coins, FileText } from 'lucide-react'
+import { isCloudMode } from '@/lib/cloudMode'
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -81,10 +82,23 @@ export default function HelpPage() {
           </section>
 
           <section className="flex flex-col gap-4">
+            {isCloudMode() && (
+              <div className="rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-neutral-700">
+                <p className="font-medium text-neutral-900">Cloud demo (v0.1)</p>
+                <p className="mt-1">
+                  This build covers upload, automatic analysis, and the editor
+                  with persistent per-scene edits. Voice preview, Smart Fill,
+                  character rename, project management (rename/star/delete),
+                  and Export are coming in v0.2 — the sections below describe
+                  the full product and are marked where a feature is not yet
+                  available here.
+                </p>
+              </div>
+            )}
             <SectionHeading>Getting started</SectionHeading>
-            <Card id="getting-started" title="What is InstaScribe?">
+            <Card id="getting-started" title="What is InstaDescribe?">
               <p>
-                InstaScribe generates audio description (AD) captions for video content. It
+                InstaDescribe generates audio descriptions (AD) for video content. It
                 extracts frames from a video, sends them to an AI vision model, and produces
                 scene-level descriptions timed to match the action.
               </p>
@@ -123,13 +137,18 @@ export default function HelpPage() {
                 <OptionRow
                   name="8 fps — Dynamic"
                   summary="Eight frames per second. For fast motion, sports, action."
-                  badge="Highest fidelity"
+                  badge={isCloudMode() ? 'Cloud v0.2' : 'Highest fidelity'}
                 />
               </div>
               <p className="text-xs text-neutral-400">
                 FPS maps to the pipeline's STEP parameter. 8 fps = STEP 0.125, 1 fps = STEP
                 1.0, 0.5 fps = STEP 2.0.
               </p>
+              {isCloudMode() && (
+                <p className="text-xs font-medium text-neutral-500">
+                  Cloud v0.1 supports 0.5 fps and 1 fps. 8 fps is coming in v0.2.
+                </p>
+              )}
             </Card>
 
             <Card id="models" title="AI models">
@@ -146,9 +165,14 @@ export default function HelpPage() {
                 <OptionRow
                   name="GPT-5.4"
                   summary="Highest quality, richer scene understanding, costlier."
-                  badge="Production"
+                  badge={isCloudMode() ? 'Cloud v0.2' : 'Production'}
                 />
               </div>
+              {isCloudMode() && (
+                <p className="text-xs font-medium text-neutral-500">
+                  Cloud v0.1 accepts GPT-4.1 only. GPT-5.4 is coming in v0.2.
+                </p>
+              )}
             </Card>
 
             <Card id="audio-extraction" title="Audio & voice detection">
@@ -172,10 +196,19 @@ export default function HelpPage() {
           <section className="flex flex-col gap-4">
             <SectionHeading>Editor</SectionHeading>
             <Card id="editor" title="Editing, preview, and Smart Fill">
+              {isCloudMode() && (
+                <p className="text-neutral-500">
+                  In this cloud demo: editing and Apply work today; Preview,
+                  Smart Fill, and character rename are coming in v0.2.
+                </p>
+              )}
               <p>
                 Each scene has its own AD line, voice, and speed. Edits persist locally on
-                save and to the server when you click <span className="font-medium text-neutral-900">Apply to
-                export</span>; the server-side overrides survive page reloads and device
+                save and to the server when you click{' '}
+                <span className="font-medium text-neutral-900">
+                  {isCloudMode() ? 'Apply' : 'Apply to export'}
+                </span>
+                ; the server-side overrides survive page reloads and device
                 switches.
               </p>
               <p>
@@ -192,8 +225,8 @@ export default function HelpPage() {
               </p>
               <p>
                 <span className="font-medium text-neutral-900">Characters tab</span> lists every
-                detected entity. Renaming an entity rewrites every scene that references it via
-                the caption template; locked scenes are left alone.
+                detected entity. Renaming an entity rewrites every scene that references it in
+                its description lines; locked scenes are left alone.
               </p>
             </Card>
           </section>
@@ -201,6 +234,12 @@ export default function HelpPage() {
           <section className="flex flex-col gap-4">
             <SectionHeading>Export</SectionHeading>
             <Card id="export" title="Output formats">
+              {isCloudMode() && (
+                <p className="text-neutral-500">
+                  Export is coming in v0.2 of the cloud demo. The formats below
+                  describe the full product.
+                </p>
+              )}
               <p>
                 The Export dialog ships five formats. Text formats skip TTS and complete
                 in seconds; audio and video formats render TTS for every active scene then
@@ -281,7 +320,7 @@ export default function HelpPage() {
             <SectionHeading>Tokens & pricing</SectionHeading>
             <Card id="tokens-pricing" title="How processing cost is calculated">
               <p>
-                InstaScribe is token-billed. Every vision-model call consumes tokens; the total
+                InstaDescribe is token-billed. Every vision-model call consumes tokens; the total
                 depends on FPS, frame quality, chunk size, and model.
               </p>
               <div>

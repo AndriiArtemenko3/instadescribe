@@ -10,9 +10,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+import { isCloudMode } from '@/lib/cloudMode'
 import { ProjectCard } from '../components/ProjectCard'
+import { CloudCompletionButton } from '../components/CloudCompletionButton'
 import { formatDuration, formatTokens, formatDate, STATUS_STYLES, STATUS_LABELS } from '../utils/formatters'
 import { useAppStore } from '@/store/appStore'
+import { reportProjectMutationError } from '@/lib/projectMutationFeedback'
 import type { Project } from '@/types'
 
 // ─── List-view row ────────────────────────────────────────────────────────────
@@ -45,7 +48,9 @@ function ProjectRow({ project, onRename, onDelete, onToggleStar }: ProjectRowPro
   return (
     <article
       className="group flex items-center gap-3 sm:gap-4 rounded-lg border border-neutral-200 bg-neutral-0 px-3 sm:px-4 py-3 cursor-pointer transition-all hover:shadow-card hover:border-neutral-300"
-      onClick={() => navigate(`/editor/${project.id}`)}
+      onClick={() => {
+        if (project.status !== 'confirmation_pending') navigate(`/editor/${project.id}`)
+      }}
     >
       {/* Thumbnail */}
       <div className="relative h-9 w-16 shrink-0 overflow-hidden rounded bg-neutral-950">
@@ -107,6 +112,8 @@ function ProjectRow({ project, onRename, onDelete, onToggleStar }: ProjectRowPro
         </span>
       </div>
 
+      <CloudCompletionButton project={project} compact />
+
       {/* Stats — progressive disclosure: scenes+duration at md, +model+tokens at lg */}
       <div className="hidden md:flex items-center shrink-0 text-xs text-neutral-500">
         <span className="flex w-14 items-center gap-1"><Layers size={11} /> {project.sceneCount ?? '—'}</span>
@@ -119,6 +126,7 @@ function ProjectRow({ project, onRename, onDelete, onToggleStar }: ProjectRowPro
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
+            aria-label={`Project actions for ${project.name}`}
             className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-neutral-100"
             onClick={(e) => e.stopPropagation()}
           >
@@ -126,22 +134,35 @@ function ProjectRow({ project, onRename, onDelete, onToggleStar }: ProjectRowPro
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44" onClick={(e) => e.stopPropagation()}>
-          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/editor/${project.id}`) }}>
-            <ExternalLink className="mr-2 h-4 w-4" />
-            Open editor
-          </DropdownMenuItem>
+          {project.status === 'confirmation_pending' ? (
+            <DropdownMenuItem disabled>
+              <ExternalLink className="mr-2 h-4 w-4" />
+              Editor available after confirmation
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); navigate(`/editor/${project.id}`) }}>
+              <ExternalLink className="mr-2 h-4 w-4" />
+              Open editor
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onToggleStar?.(project.id) }}>
             <Star className={cn('mr-2 h-4 w-4', project.starred && 'fill-current')} />
             {project.starred ? 'Unstar' : 'Star'}
           </DropdownMenuItem>
           <DropdownMenuItem onClick={handleRename}>Rename</DropdownMenuItem>
-          <DropdownMenuItem
-            className="text-danger-400 focus:text-danger-400"
-            onClick={handleDelete}
-          >
-            Delete
-          </DropdownMenuItem>
+          {isCloudMode() ? (
+            <DropdownMenuItem disabled className="text-neutral-400">
+              Delete — not available yet
+            </DropdownMenuItem>
+          ) : (
+              <DropdownMenuItem
+                className="text-danger-400 focus:text-danger-400"
+                onClick={handleDelete}
+              >
+                Delete
+              </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </article>
@@ -189,10 +210,10 @@ export default function ProjectsPage() {
     deleteProject(id).catch((e: Error) => window.alert(`Could not delete: ${e.message}`))
   }
   function handleRename(id: string, name: string) {
-    renameProject(id, name).catch((e: Error) => window.alert(`Could not rename: ${e.message}`))
+    renameProject(id, name).catch((error: unknown) => reportProjectMutationError('rename', error))
   }
   function handleToggleStar(id: string) {
-    toggleStar(id).catch((e: Error) => window.alert(`Could not update star: ${e.message}`))
+    toggleStar(id).catch((error: unknown) => reportProjectMutationError('update star', error))
   }
 
   return (

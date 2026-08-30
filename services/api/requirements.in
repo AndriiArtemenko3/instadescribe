@@ -1,0 +1,26 @@
+# InstaDescribe cloud API — runtime dependency intent (G1: health-only service).
+# Compile with:
+#
+#   uv pip compile services/api/requirements.in -o services/api/requirements.txt \
+#     --python-version 3.12 --python-platform x86_64-unknown-linux-gnu
+#
+# (Pure-Python/microframework set: the pins resolve identically for the arm64
+# containers local Docker builds on Apple Silicon.)
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2
+
+# G2 database foundation: synchronous SQLAlchemy 2 + Alembic + psycopg 3
+# (ADR-0002). Alembic ships in the runtime set because migrations run as a
+# one-off task using this image (spec §15).
+sqlalchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.1
+pydantic-settings>=2
+
+# G3: S3 presigned-POST generation (SigV4, path-style against LocalStack).
+boto3>=1.34
+
+# Browser BFF boundary: local Cognito JWT verification against cached JWKS.
+# The API never sends bearer tokens to an introspection endpoint.
+pyjwt[crypto]>=2.10

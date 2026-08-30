@@ -31,6 +31,7 @@ interface SceneListPanelProps {
   onActiveToggle: (sceneId: number) => void
   collisions: Record<number, SceneCollision>
   loading?: boolean
+  readOnly?: boolean
 }
 
 export function SceneListPanel({
@@ -40,6 +41,7 @@ export function SceneListPanel({
   onActiveToggle,
   collisions,
   loading,
+  readOnly = false,
 }: SceneListPanelProps) {
   const activeCount = scenes.filter((s) => s.active).length
   const emptyCount  = scenes.filter((s) => s.active && !s.text.trim()).length
@@ -134,11 +136,13 @@ export function SceneListPanel({
               {/* Active toggle — visible on hover or when inactive */}
               <button
                 onClick={(e) => { e.stopPropagation(); onActiveToggle(scene.id) }}
+                disabled={readOnly}
                 title={scene.active ? 'Deactivate scene' : 'Activate scene'}
                 aria-label={scene.active ? 'Deactivate scene' : 'Activate scene'}
                 className={cn(
                   'flex shrink-0 items-start pt-3 pr-2 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none',
                   !scene.active && 'opacity-100',
+                  readOnly && 'hidden',
                 )}
               >
                 <span className={cn(

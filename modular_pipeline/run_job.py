@@ -239,7 +239,35 @@ def main() -> None:
     write_status("processing", 16, "transcribing_audio")
     print(f"[{job_id}] Running audio pipeline…")
 
-    if settings.get("audio_extraction", True):
+    provided_transcript_path = settings.get("provided_transcript_path")
+    provided_transcript_format = settings.get("provided_transcript_format")
+    if provided_transcript_path:
+        from timed_transcript import (
+            parse_timed_transcript_bytes,
+            transcript_ad_gaps,
+            transcript_audio_events,
+        )
+
+        transcript_payload = parse_timed_transcript_bytes(
+            Path(provided_transcript_path).read_bytes(),
+            provided_transcript_format,
+            video_duration_seconds=float(settings["duration_secs"]),
+        )
+        audio_payload = transcript_audio_events(
+            transcript_payload,
+            video_duration_seconds=float(settings["duration_secs"]),
+        )
+        safe_json_dump(CFG_OUTPUT_DIR / "audio_events.json", audio_payload)
+        safe_json_dump(
+            CFG_OUTPUT_DIR / "ad_placement_gaps.json",
+            transcript_ad_gaps(
+                transcript_payload,
+                video_duration_seconds=float(settings["duration_secs"]),
+            ),
+        )
+        safe_json_dump(CFG_OUTPUT_DIR / "transcript.json", transcript_payload)
+        audio_events = []
+    elif settings.get("audio_extraction", True):
         from audio_whisperx_pipeline import (
             calculate_ad_gaps,
             load_audio_events,

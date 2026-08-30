@@ -1,158 +1,204 @@
-# InstaScribe
+# InstaDescribe
 
-A human-in-the-loop tool for authoring audio descriptions for video. It drafts a
-description for every scene with AI, lets a person edit and approve each one, and
-mixes the spoken description into the video's natural gaps between dialogue.
+API-first, multi-tenant workflow for creating human-reviewed audio description
+and delivering accessible video assets from one asynchronous pipeline.
 
-[![CI](https://github.com/AndriiArtemenko3/InstaScribe_Video_Description_Pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/AndriiArtemenko3/InstaScribe_Video_Description_Pipeline/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![CI](https://github.com/AndriiArtemenko3/instadescribe/actions/workflows/ci.yml/badge.svg)](https://github.com/AndriiArtemenko3/instadescribe/actions/workflows/ci.yml)
+[![Core: BUSL-1.1](https://img.shields.io/badge/core-BUSL--1.1-6f5bd3.svg)](./LICENSE)
+[![SDK + CLI: MIT](https://img.shields.io/badge/SDK%20%2B%20CLI-MIT-2ea44f.svg)](./LICENSING.md)
+[![OpenAPI 3.1](https://img.shields.io/badge/contract-OpenAPI%203.1-0f6fbd.svg)](./openapi/instadescribe-cloud-v1.json)
 
-> Tested with 10 participants: drafts rated accurate (4.4/5) and useful (4.2/5),
-> and trusted enough to edit rather than rewrite (4.0/5).
+> **Beta status:** The API-first beta architecture is implemented in this
+> repository and locally verified. The static legacy Cloud Core v0.1 frontend
+> remains published, but its API/readiness is currently unavailable as of
+> `2026-08-29`. Beta infrastructure cutover, live integration canaries and npm
+> publication are pending.
 
-[Quick start](#quick-start) · [Results](#evaluation-and-results) · [Architecture](./docs/architecture.md)
+![InstaDescribe human review workspace](./docs/assets/instadescribe-product-capture.png)
 
-## Why this exists
+[Architecture](./docs/architecture.md) ·
+[Architecture evolution](./docs/architecture-evolution.md) ·
+[Engineering history](./docs/engineering-history.md) ·
+[Deterministic demo](#deterministic-demo) ·
+[OpenAPI](./openapi/instadescribe-cloud-v1.json) ·
+[SDK](./packages/sdk/README.md) ·
+[CLI](./packages/cli/README.md)
 
-Audio description makes video accessible to blind and low-vision audiences, but
-writing it by hand is slow, skilled work, and most short-form video never gets it.
-InstaScribe does not try to replace the author. It removes the blank-page step: the
-model proposes a draft for every scene, and the author stays in control of what ships.
+## The product boundary
 
-## What it does
+InstaDescribe turns a browser-only authoring pipeline into a service that a CMS,
+DAM, CI job or university media workflow can call. FastAPI remains the only owner
+of tenant isolation, quotas, idempotency and state transitions. Python workers own
+media and AI processing. Node.js has three bounded roles: the authenticated Next.js
+web application and thin BFF, the server-side TypeScript SDK, and the CLI.
 
-- Splits a video into scenes and drafts a description for each from the frames.
-- Puts every draft in an editor where the author rewrites, approves, or rejects it.
-- Detects speech with voice-activity detection and transcription, so descriptions
-  land in the gaps between dialogue rather than over it.
-- Renders a finished video with the description mixed in at broadcast loudness.
-
-## How it works
-
-```
-video → scene segmentation → frame sampling → per-scene draft (gpt-4.1 vision)
-      → human edit-and-approve loop → speech detection + transcription (silero-vad,
-        faster-whisper) → gap-aware placement with a collision check
-      → text-to-speech (tts-1-hd) → loudness-matched ffmpeg mix → described video
-```
-
-The vision, rewrite, and speech steps run through a provider interface: OpenAI by
-default, Claude or Gemini with a key, or fully local with Ollama (Qwen2.5-VL) plus
-Kokoro and no API key at all. Full diagram and the deploy model are in
-[docs/architecture.md](./docs/architecture.md); provider setup and the local-quality
-tradeoff are in [docs/local-models.md](./docs/local-models.md).
-
-Decisions that shaped it:
-
-- **The model drafts; the person decides.** It is slower than full automation, but
-  output a blind listener relies on should not ship unreviewed. The study backed the
-  call: people used the edit step rather than accepting drafts blindly.
-- **Descriptions sit in curated gaps.** A collision check keeps narration off the
-  dialogue track, so a description never talks over a line.
-- **A draft per scene, not per frame.** Sampling frames and describing a scene as a
-  unit is cheaper and closer to how a human describer thinks in shots.
-- **A rolling character memory.** Identities established in one chunk of frames carry
-  forward, and a rename re-renders every dependent scene through a pronoun-aware
-  template so the narration stays grammatical.
-
-## Quick start
-
-### Try it in one command (no API key)
-
-```bash
-make demo
+```mermaid
+flowchart LR
+    EXT["CMS / DAM / CI"] --> CLIENTS["TypeScript SDK / CLI"]
+    CLIENTS --> INT["Integration API<br/>/v1"]
+    USER["Reviewer"] --> WEB["Next.js Web App<br/>thin BFF"]
+    WEB --> APP["App API<br/>/api/app/v1"]
+    INT --> CORE["FastAPI business core"]
+    APP --> CORE
+    CORE --> DATA["Organization-scoped<br/>PostgreSQL / S3 / SQS"]
+    DATA --> WORKERS["Python analysis + render workers"]
+    WORKERS --> REVIEW["Human review"]
+    REVIEW --> OUT["MP4 / MP3 / SRT / CSV / DOCX<br/>+ terminal webhook"]
 ```
 
-Builds and serves the browser app on a committed sample clip. Every model step is
-served from baked fixtures, so it needs no key, no backend, and nothing beyond
-Node. Open the printed URL and edit a real description in the editor.
+The stable external lifecycle is:
 
-### Run the full pipeline on your own video
-
-Prerequisites: Python 3.12, Node 20+, and ffmpeg on your PATH (`brew install ffmpeg`).
-
-```bash
-make install                              # web deps + a .venv with the pipeline
-cp .env.example .env                      # pick a model backend (below)
-make server                               # single-origin app + API at :8765
+```text
+awaiting_upload → queued → processing → needs_review → rendering → completed
+                                      ↳ failed / cancelled
 ```
 
-Open http://localhost:8765, upload a short clip, edit and approve each
-description, preview the mixed audio, then export the described video.
+Review mutations stay in the web application. An integration creates a job,
+uploads directly to private S3, waits for `needs_review`, sends a reviewer to the
+web UI, then consumes a terminal webhook and downloads a complete, checksummed
+five-format deliverable set.
 
-Pick a model backend in `.env` (`INSTASCRIBE_BACKEND`):
+## Engineering highlights
 
-- **OpenAI** (default) — set `OPENAI_API_KEY`.
-- **Claude** — `anthropic`; set `ANTHROPIC_API_KEY` and `pip install -r requirements-providers.txt`.
-- **Gemini** — `gemini`; set `GEMINI_API_KEY` (no extra install).
-- **Fully local, no key** — `local`: install [Ollama](https://ollama.com), pull
-  `qwen2.5vl:7b` + `qwen2.5:7b`, and `pip install -r requirements-local.txt` for
-  local TTS.
-
-Vision, Smart Fill, and TTS each run through a provider interface, so the model
-behind them is a config change, not a code change. Setup and the local-quality
-tradeoff: [docs/local-models.md](./docs/local-models.md).
-
-## Evaluation and results
-
-Tested with 10 participants over two days (students; 9 sighted; mixed familiarity
-with audio description). On a 1–5 scale:
-
-| Dimension | Score |
+| Concern | Design |
 |---|---|
-| Description accuracy | 4.4 |
-| Draft usefulness | 4.2 |
-| Eyes-closed clarity (proxy) | 4.1 |
-| Trust in the tool | 4.0 |
-| Sense of control | 3.9 |
-| Ease of finding and fixing errors | 3.8 |
+| Tenant isolation | Every Project and Job belongs to an Organization; repositories scope every read and write to the authenticated Principal, and foreign IDs resolve like absent IDs |
+| Safe retries | Required idempotency keys bind a request key to its payload for 24 hours; quota and active-job capacity are reserved transactionally |
+| Worker races | Database leases and fencing prevent cancelled or stale workers from publishing state or artifacts |
+| Human control | Every scene receives a reviewer decision; a zero-description result requires explicit confirmation |
+| Atomic delivery | MP4, MP3, SRT, CSV and DOCX remain internal until the entire checksum-verified set succeeds |
+| Notifications | State transitions and immutable webhook outbox events commit in the same transaction; delivery is signed and at least once |
+| Browser security | Cognito tokens stay server-side; the browser holds an opaque `__Host-` session cookie, while media transfers directly between browser and S3 |
 
-Usability ran a 7-item index (a partial, non-standard SUS) scoring 69.6; people
-learned the tool quickly and found it well integrated.
+The detailed invariants and ownership boundaries live in
+[docs/architecture.md](./docs/architecture.md) and
+[ADR-0010](./docs/adr/0010-api-first-b2b-beta.md).
 
-Honest limits, stated up front:
+## Deterministic demo
 
-- Participants were students, not professional describers, and mostly sighted, so
-  an eyes-closed task stood in as a proxy for a blind listener.
-- Interaction logs ran on an ephemeral disk and were not retained, so this rests on
-  the questionnaire and open-text answers.
+The committed Sintel fixture exercises the editor without an API key, cloud
+account or paid provider call.
 
-## Reliability: what broke and how I fixed it
+Prerequisites: Node.js 22.19 or newer.
 
-The work that made the tool usable lived in failures that only show up in real output:
-
-- **An override race** made one scene's narration apply to all twelve. The fix was a
-  per-job lock plus atomic writes around the shared override file, so concurrent edits
-  stop clobbering each other.
-- **A 6 dB loudness drop** in the mix, because ffmpeg's `amix` normalises across its
-  inputs. The fix mixes with `normalize=0`, ducks the background per gap by measured
-  LUFS, and caps peaks with a limiter (two-pass EBU R128).
-- **A miscalibrated collision check** compared each description against dialogue
-  instead of against the curated gaps, so it flagged the wrong overlaps.
-
-## Built with
-
-Python 3.12 · Flask · a pluggable model backend — OpenAI, Claude, or Gemini, or
-fully local (Ollama Qwen2.5-VL + Kokoro) · faster-whisper · silero-vad · ffmpeg ·
-React 19 · Vite · TypeScript · Tailwind · shadcn/ui · TanStack Query · Zustand ·
-deployed on Fly.io.
-
-## Project layout
-
-```
-modular_pipeline/   Flask server + the AD pipeline (frames, audio, vision, TTS, export)
-App/                React + Vite editor (feature-folder structure)
-docs/               architecture and evaluation notes
-tests/              pytest (pipeline) + vitest lives under App/
+```bash
+npm ci
+npm run demo -w App
 ```
 
-## Media
-
-The bundled demo clip is **Sintel** — © Blender Foundation,
-[durian.blender.org](https://durian.blender.org), licensed
-[CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). Full attribution:
+Open the URL printed by Vite. The demo uses committed scene, transcript, poster,
+audio and export fixtures; it does not upload data or call a model provider.
+Sintel attribution is recorded in
 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
 
-## Licence
+## Integration surface
 
-[MIT](./LICENSE)
+The generated OpenAPI document is exported deterministically from FastAPI. The SDK
+exposes a hand-written ergonomic boundary rather than its generated transport.
+
+```ts
+import { InstaDescribe } from "@instadescribe/sdk";
+
+const client = new InstaDescribe({
+  baseUrl: "https://api.instadescribe.example",
+  appUrl: "https://app.instadescribe.example",
+  apiKey: process.env.INSTADESCRIBE_API_KEY!,
+});
+
+const submission = await client.jobs.submitFile({
+  filePath: "./lecture.mp4",
+  transcriptPath: "./lecture.vtt",
+  project: { name: "BIO101", externalId: "lecture-07" },
+});
+
+const ready = await client.jobs.wait(submission.jobId);
+console.log(client.reviewUrl(ready).href);
+```
+
+Equivalent CLI flow:
+
+```bash
+printf '%s' "$INSTADESCRIBE_API_KEY" | instadescribe auth login --key-stdin
+instadescribe create ./lecture.mp4 --project BIO101 --transcript ./lecture.vtt --wait
+instadescribe review JOB_ID --open
+instadescribe wait JOB_ID --until completed
+instadescribe download JOB_ID --output-dir ./accessible
+```
+
+The SDK and CLI source are complete in this repository but are not yet published
+to npm. Service keys never enter the browser or signed S3 requests.
+
+## Implementation status
+
+| Surface | Status |
+|---|---|
+| API-first beta source and local test coverage | Implemented and locally verified |
+| Multi-tenant FastAPI integration and browser APIs | Implemented locally; beta deployment pending |
+| Next.js App Router cutover | Implemented behind the browser cutover boundary; Vite remains the rollback build |
+| TypeScript SDK and CLI | Implemented in source; npm packages unpublished |
+| Public AWS Cloud Core v0.1 | Static legacy frontend published; API/readiness unavailable as of `2026-08-29`; release-time evidence is preserved separately |
+| Cognito/S3/webhook/provider live canary | Pending |
+| Customer beta, billing, SLA | Not started / out of beta scope |
+
+The legacy deployment is evidence of the asynchronous AWS foundation, not a claim
+that the B2B beta is deployed. Its bounded release record is preserved in the
+[Cloud Core v0.1 evidence packet](./docs/releases/v0.1-cloud-core.md).
+The history and privacy boundary for the future public branch is documented in
+[PUBLIC_SNAPSHOT.md](./PUBLIC_SNAPSHOT.md).
+
+## Repository map
+
+```text
+App/                Next.js web app + Vite rollback/editor build
+services/api/       FastAPI business authority and public API boundaries
+services/worker/    SQS consumers and isolated analysis/render execution
+modular_pipeline/   Media, multimodal drafting, TTS and export pipeline
+packages/sdk/       MIT-licensed server-side TypeScript SDK
+packages/cli/       MIT-licensed Node.js CLI
+packages/contracts/ Shared Python queue/provider contracts
+openapi/            Deterministic FastAPI contract export
+migrations/         PostgreSQL/Alembic schema evolution
+infrastructure/     Terraform for legacy and isolated beta AWS resources
+docs/               Architecture, ADRs, evaluation and runbooks
+```
+
+## Evaluation evidence
+
+An earlier formative evaluation involved 10 student participants over two days;
+9 were sighted. On a five-point scale, participants rated draft accuracy 4.4,
+usefulness 4.2 and trust 4.0. The study used an eyes-closed task as a proxy and did
+not involve professional describers, so it is product evidence, not a general claim
+about blind-user outcomes or standards compliance. Method and limitations are in
+[docs/evaluation.md](./docs/evaluation.md).
+
+InstaDescribe is designed to support audio-description authoring workflows. The
+repository does not claim legal WCAG compliance, production readiness, live B2B
+customers, billing or an SLA.
+
+## Development
+
+Useful local gates:
+
+```bash
+npm run build
+npm test
+npm run typecheck
+make test
+make lint
+```
+
+Cloud integration tests additionally require the repository's disposable
+PostgreSQL and LocalStack test environment. See the Makefile and runbooks for the
+bounded commands; never point migration tests at an application database.
+
+## Licensing and contributions
+
+The product core is source-available under
+[Business Source License 1.1](./LICENSE), with an Apache-2.0 Change Date of
+`2030-08-29`. The SDK and CLI are separately open source under MIT. See
+[LICENSING.md](./LICENSING.md) for the exact boundary and
+[COMMERCIAL_LICENSE.md](./COMMERCIAL_LICENSE.md) for production-use inquiries.
+
+Issues and private security reports are welcome. External pull requests are not
+accepted during the beta; see [CONTRIBUTING.md](./CONTRIBUTING.md) and
+[SECURITY.md](./SECURITY.md).

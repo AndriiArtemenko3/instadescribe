@@ -1,16 +1,19 @@
 // Study-mode helpers — feature flag, anonymous session, provisioning, logging.
 // Active only when the build is produced with VITE_STUDY_MODE=1; the normal app
-// is untouched. See _inbox/instascribe-evaluation/ in the vault for the protocol.
+// is untouched. The public evaluation protocol documents the study behavior.
 import type { Project } from '@/types'
+import { legacyApiBase, publicFlag } from './runtimeEnv'
 
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8765'
+const API_BASE = legacyApiBase()
+// These persisted keys intentionally retain the v0.1 namespace so the Vite
+// rollback can read existing anonymous study sessions during the beta cutover.
 const SESSION_KEY = 'instascribe:studySessionId'
 const CONSENT_KEY = 'instascribe:studyConsent'
 const TOUR_KEY = 'instascribe:studyTourDone'
 const TASKS_KEY = 'instascribe:studyTasks'
 
 export function isStudyMode(): boolean {
-  return (import.meta.env.VITE_STUDY_MODE as string | undefined) === '1'
+  return publicFlag('studyMode')
 }
 
 /**
@@ -19,7 +22,7 @@ export function isStudyMode(): boolean {
  * so the whole editor runs from static files with no key and nothing to break.
  */
 export function isDemoBuild(): boolean {
-  return (import.meta.env.VITE_DEMO_MODE as string | undefined) === '1'
+  return publicFlag('demoMode')
 }
 
 /** Stable anonymous id for this browser/participant. Created once, never tied to a name. */
@@ -150,4 +153,3 @@ export function logEvent(event: string, detail?: unknown): void {
     /* logging must never break the participant's session */
   }
 }
-

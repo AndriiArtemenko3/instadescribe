@@ -5,18 +5,51 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
+  secrets:
+    name: Secret scan (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   backend:
     name: Python (lint + tests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
       - name: Install dev dependencies
-        run: pip install -r requirements-dev.txt
+        run: |
+          pip install -r requirements-dev.txt
+          pip install pip-audit==2.10.1
+      - name: Audit root production Python dependencies
+        run: >-
+          pip-audit --strict --progress-spinner off
+          -r requirements.txt
+          -r requirements-providers.txt
+      - name: Audit FastAPI production Python dependencies
+        run: >-
+          pip-audit --strict --progress-spinner off
+          -r services/api/requirements.txt
+      - name: Audit worker Linux lock
+        run: >-
+          pip-audit --strict --progress-spinner off
+          --vulnerability-service osv --no-deps --disable-pip
+          -r services/worker/requirements.txt
       - name: Lint
         run: |
           ruff check .
@@ -24,23 +57,194 @@ jobs:
       - name: Test
         run: pytest -q
 
-  frontend:
-    name: Frontend (lint + typecheck + tests)
+  cloud-api:
+    name: Cloud API (Python 3.12 + PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.14
+        env:
+          POSTGRES_USER: instascribe
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: instascribe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U instascribe"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+      localstack:
+        image: localstack/localstack:4.14.0
+        env:
+          SERVICES: s3,sqs
+          AWS_DEFAULT_REGION: eu-west-2
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd "curl -sf http://localhost:4566/_localstack/health"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 24
+    env:
+      DATABASE_URL: postgresql+psycopg://instascribe:ci-only@127.0.0.1:5432/instascribe
+      # Destructive test fixtures run ONLY against this separate, explicitly
+      # test-designated database (the in-suite guard fails closed otherwise).
+      INSTADESCRIBE_TEST_DATABASE_URL: postgresql+psycopg://instascribe:ci-only@127.0.0.1:5432/instascribe_test
+      INSTADESCRIBE_TEST_S3: "1"
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: eu-west-2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install FFmpeg media tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+      - name: Install cloud API dependencies
+        run: pip install -r services/api/requirements-dev.txt
+      - name: Create disposable test database
+        run: PGPASSWORD=ci-only psql -h 127.0.0.1 -U instascribe -d instascribe -c "CREATE DATABASE instascribe_test"
+      - name: Migrate application database
+        run: alembic upgrade head
+      - name: Drift check
+        run: alembic check
+      - name: Cloud API tests
+        run: pytest services/api/tests -q
+      - name: Worker and API-first beta acceptance tests
+        run: pytest services/worker/tests -q
+
+  node:
+    name: Node contracts, SDK, CLI and Web App
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.19.0"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install API schema dependencies
+        run: pip install -r services/api/requirements-dev.txt
+      - name: Install the npm workspace from the single lockfile
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Audit the npm dependency graph
+        run: npm audit --audit-level=high
+      - name: Verify source and package license boundaries
+        run: npm run license:check
+      - name: Verify deterministic OpenAPI projection and generated client
+        run: npm run codegen:check
+      - name: Typecheck SDK and CLI
+        run: npm run typecheck
+      - name: Test SDK and CLI
+        run: npm test
+      - name: Build SDK and CLI
+        run: npm run build
+      - name: Validate packed SDK and CLI entry points
+        run: |
+          npm run package:check
+          npm run package:smoke
+      - name: Lint Web App
+        run: npm run lint -w App
+      - name: Test Web App
+        run: npm run test -w App
+      - name: Build Vite rollback
+        run: npm run build -w App
+      - name: Typecheck Next App Router
+        run: npm run typecheck:next -w App
+      - name: Build Next standalone runtime
+        run: npm run build:next -w App
+
+  browser-parity:
+    name: Next browser parity (Playwright Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.19.0"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install the exact workspace lock
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install pinned Chromium runtime
+        run: npm run playwright:install -w App
+      - name: Build the production Next runtime
+        run: npm run build:next -w App
+      - name: Exercise browser, BFF and direct-media boundaries
+        run: npm run test:e2e -w App
+      - name: Preserve Playwright failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: next-playwright-failure
+          path: |
+            App/playwright-report
+            App/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  sdk-cli-matrix:
+    name: SDK and CLI (${{ matrix.os }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ["22.19.0", "24.x"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install the exact workspace lock
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Typecheck SDK and CLI
+        run: npm run typecheck
+      - name: Test SDK and CLI
+        run: npm test
+      - name: Build SDK and CLI
+        run: npm run build
+      - name: Validate packed SDK and CLI
+        run: npm run package:smoke
+
+  terraform:
+    name: Terraform beta stack (format + validate + mocked tests)
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: App
+        working-directory: infrastructure/terraform/portfolio
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: App/package-lock.json
-      - run: npm ci
-      - name: Lint
-        run: npm run lint
-      - name: Typecheck
-        run: npx tsc -b
-      - name: Test
-        run: npm run test
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "1.13.5"
+      - name: Check formatting
+        run: terraform fmt -check -recursive
+      - name: Initialize providers without a backend
+        run: terraform init -backend=false -input=false
+      - name: Validate configuration
+        run: terraform validate
+      - name: Run mocked infrastructure assertions
+        run: terraform test

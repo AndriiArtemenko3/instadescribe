@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""InstaScribe backend server.
+"""InstaDescribe legacy backend server.
 
 A single-origin Flask app: it serves the built SPA, per-job data, videos, and the
 JSON API the editor (uploadApi.ts) consumes. Path/storage logic lives in
@@ -107,9 +107,9 @@ def create_job():
     )
 
     # Launch run_job.py as a non-blocking subprocess, pinned to the active model
-    # backend (the in-app picker / INSTASCRIBE_BACKEND).
+    # backend (the in-app picker / INSTADESCRIBE_BACKEND).
     job_env = dict(os.environ)
-    job_env["INSTASCRIBE_BACKEND"] = active_backend()
+    job_env["INSTADESCRIBE_BACKEND"] = active_backend()
     subprocess.Popen(
         [storage.PYTHON, str(storage.SERVER_DIR / "run_job.py"), job_id, str(settings_path)],
         cwd=str(storage.SERVER_DIR),
@@ -550,7 +550,7 @@ def download_export(job_id: str, export_id: str):
         out,
         mimetype=export_service.EXTENSION_MIME.get(fmt, "application/octet-stream"),
         as_attachment=not inline,
-        download_name=f"instascribe_{job_id[:8]}_{export_id}.{fmt}",
+        download_name=f"instadescribe_{job_id[:8]}_{export_id}.{fmt}",
         conditional=True,
     )
 
@@ -798,7 +798,7 @@ def serve_videos(subpath: str):
 def serve_index():
     if (storage.DIST_DIR / "index.html").exists():
         return send_from_directory(storage.DIST_DIR, "index.html")
-    return jsonify({"status": "InstaScribe backend running (no SPA build present)"})
+    return jsonify({"status": "InstaDescribe backend running (no SPA build present)"})
 
 
 @app.get("/<path:path>")
@@ -819,6 +819,6 @@ if __name__ == "__main__":
     configure_logging()
     storage.JOBS_DIR.mkdir(parents=True, exist_ok=True)
     port = int(os.environ.get("PORT", "8765"))
-    logger.info("InstaScribe backend server starting on http://0.0.0.0:%s", port)
+    logger.info("InstaDescribe backend server starting on http://0.0.0.0:%s", port)
     logger.info("Jobs directory: %s", storage.JOBS_DIR)
     app.run(host="0.0.0.0", port=port, threaded=True, debug=False)

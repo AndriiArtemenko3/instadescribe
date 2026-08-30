@@ -1,0 +1,40 @@
+{
+  "name": "instadescribe-node",
+  "private": true,
+  "version": "1.0.0-beta.1",
+  "license": "BUSL-1.1",
+  "type": "module",
+  "workspaces": [
+    "App",
+    "packages/sdk",
+    "packages/cli"
+  ],
+  "scripts": {
+    "build": "npm run build -w @instadescribe/sdk && npm run build -w instadescribe",
+    "openapi:export": "python3 services/api/scripts/export_openapi.py",
+    "openapi:project": "npm run openapi:project -w @instadescribe/sdk",
+    "codegen": "npm run openapi:export && npm run openapi:project && npm run codegen -w @instadescribe/sdk",
+    "codegen:check": "python3 services/api/scripts/export_openapi.py --check && npm run openapi:check -w @instadescribe/sdk && npm run codegen -w @instadescribe/sdk && git diff --exit-code -- openapi packages/sdk/src/generated packages/sdk/openapi/instadescribe-integration-v1.contract.json",
+    "license:check": "node scripts/check-license-boundaries.mjs",
+    "package:check": "publint packages/sdk && publint packages/cli && attw --pack packages/sdk --profile esm-only && attw --pack packages/cli --profile esm-only",
+    "package:smoke": "node scripts/verify-packed-node.mjs",
+    "test:e2e": "npm run test:e2e -w App",
+    "test": "npm run test -w @instadescribe/sdk && npm run test -w instadescribe",
+    "typecheck": "npm run typecheck -w @instadescribe/sdk && npm run typecheck -w instadescribe"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@types/node": "^24.12.0",
+    "js-yaml": "4.3.2",
+    "jsdom": "26.1.0",
+    "publint": "0.3.24",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.9"
+  },
+  "overrides": {
+    "js-yaml": "4.3.2"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.node.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@instadescribe/sdk": ["../sdk/src/index.ts"],
+      "vitest": ["../../node_modules/vitest/dist/index.d.ts", "../../App/node_modules/vitest/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

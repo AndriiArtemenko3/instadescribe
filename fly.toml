@@ -1,9 +1,9 @@
-# Fly.io config for the InstaScribe study backend (single-origin: serves SPA + API).
+# Fly.io config for the InstaDescribe study backend (single-origin: serves SPA + API).
 # Deploy:  fly deploy   (after `fly auth login` + a card on the account)
-# The app name must be globally unique — `fly launch`/`fly apps create` will
-# confirm or adjust it; keep this in sync with the created app.
+# The old slug is an existing physical deployment identity and is retained
+# only for legacy rollback/evidence compatibility.
 app = "instascribe-study"
-primary_region = "lhr"   # London — close to UAL participants
+primary_region = "lhr"
 
 [build]
   dockerfile = "Dockerfile"
@@ -16,7 +16,7 @@ primary_region = "lhr"   # London — close to UAL participants
 [http_service]
   internal_port = 8765
   force_https = true
-  # Always-on for the DM campaign — no cold starts on the first click.
+  # Legacy evidence runtime retains its existing availability posture.
   auto_stop_machines = "off"
   auto_start_machines = true
   min_machines_running = 1

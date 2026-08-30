@@ -4,7 +4,7 @@ import type { Config } from 'tailwindcss'
 // DESIGN SYSTEM STATUS: PLACEHOLDER
 //
 // All colour tokens in this file are temporary placeholders.
-// No brand identity has been defined for InstaScribe yet.
+// InstaDescribe retains the existing accessible colour primitives.
 // When the brand system is established, update the values here.
 // Zero component code should need changing — tokens only.
 //
@@ -244,4 +244,3 @@ const config: Config = {
 }
 
 export default config
-

@@ -1,0 +1,58 @@
+{
+  "name": "instadescribe",
+  "version": "1.0.0-beta.1",
+  "description": "Command-line client for the InstaDescribe Integration API",
+  "homepage": "https://github.com/AndriiArtemenko3/instadescribe#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AndriiArtemenko3/instadescribe.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/AndriiArtemenko3/instadescribe/issues"
+  },
+  "keywords": [
+    "accessibility",
+    "audio-description",
+    "automation",
+    "cli",
+    "typescript"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "instadescribe": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "prebuild": "npm run clean",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@instadescribe/sdk": "1.0.0-beta.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.9"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

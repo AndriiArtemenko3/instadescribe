@@ -1,0 +1,43 @@
+# Worker-image dependency intent — the FULL pipeline stack run_job.py can reach
+# (mirrors the pipeline entries of the root requirements.txt; flask/flask-cors are
+# server-only and deliberately excluded — nothing in the run_job.py import chain
+# touches them). Compile with:
+#
+#   uv pip compile services/worker/requirements.in -o services/worker/requirements.txt \
+#     --python-version 3.12 --python-platform x86_64-unknown-linux-gnu \
+#     --index-strategy unsafe-best-match --emit-index-url
+#
+# The extra index provides CPU-only torch wheels (+cpu local version) so the
+# linux/amd64 image does not pull the multi-GB CUDA dependency tree.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Vision/text/TTS provider clients (OpenAI SDK also backs gemini/local compat paths)
+openai>=1.0
+python-dotenv>=1.0
+
+# Audio: speech detection + transcription for gap-aware AD placement.
+# TorchAudio 2.11 uses PyTorch's stable ABI and supports PyTorch 2.11 and
+# later. Keep TorchAudio on its final feature line while constraining PyTorch
+# to the audited 2.13 minor. The G5 image build still exercises a real
+# torchaudio op (not just imports) to keep this pair honest.
+faster-whisper>=1.0
+silero-vad>=5.0
+torch>=2.13,<2.14
+torchaudio==2.11.*
+# Security floor for the setuptools runtime dependency pulled by torch.
+setuptools>=83.0.0
+
+# Numerics + media
+numpy>=1.26,<2.0
+Pillow>=10.0
+
+# Export formats (exports.py — same image serves the G5 export path)
+python-docx>=1.0
+
+# G5 worker runtime: queue/object-store clients, canonical persistence and
+# fail-fast configuration (same major lines as services/api/requirements.txt).
+boto3>=1.34
+SQLAlchemy>=2.0
+psycopg[binary]>=3.1
+pydantic>=2.7
+pydantic-settings>=2.2

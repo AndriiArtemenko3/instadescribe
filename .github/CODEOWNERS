@@ -1,0 +1,12 @@
+# Default owner for the public beta repository.
+* @AndriiArtemenko3
+
+# Explicit review ownership for security, licensing and public API contracts.
+/.github/ @AndriiArtemenko3
+/LICENSE @AndriiArtemenko3
+/LICENSING.md @AndriiArtemenko3
+/COMMERCIAL_LICENSE.md @AndriiArtemenko3
+/SECURITY.md @AndriiArtemenko3
+/openapi/ @AndriiArtemenko3
+/packages/sdk/ @AndriiArtemenko3
+/packages/cli/ @AndriiArtemenko3

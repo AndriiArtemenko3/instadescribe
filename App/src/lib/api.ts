@@ -1,13 +1,31 @@
 import { toScene, toAudioEvent, toAdGap } from './transforms'
 import { useAppStore } from '@/store/appStore'
 import { isDemoBuild } from './session'
+import { isCloudMode } from './cloudMode'
+import { legacyApiBase } from './runtimeEnv'
 import * as demo from './demoApi'
+import { isAvailableTutorialId } from './tutorials'
 import type {
   Scene, AudioEvent, AdGap, Entity,
   PipelineScene, PipelineAudioEvent, PipelineAdGap,
 } from '@/types'
 
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8765'
+const API_BASE = legacyApiBase()
+
+// G7 Gate B6: in explicit cloud mode these legacy routes DO NOT EXIST on the
+// FastAPI cloud-core. The function fence guarantees an accidental call can
+// never reach the network. The only exception is an exact registry-backed
+// tutorial fixture, whose actions dispatch to deterministic browser adapters.
+// Real cloud controls stay deferred to the Portfolio Strong release (v0.2).
+function isBrowserFixture(projectId: string): boolean {
+  return isDemoBuild() || isAvailableTutorialId(projectId)
+}
+
+function fenceLegacyRoute(projectId: string): void {
+  if (isCloudMode() && !isAvailableTutorialId(projectId)) {
+    throw new Error('Available in the Portfolio Strong release.')
+  }
+}
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url)
@@ -68,7 +86,8 @@ export async function previewTts(
   voice: VoiceId,
   speed: number,
 ): Promise<Blob> {
-  if (isDemoBuild()) return demo.demoPreviewTts(projectId, sceneNumber, voice)
+  fenceLegacyRoute(projectId)
+  if (isBrowserFixture(projectId)) return demo.demoPreviewTts(projectId, sceneNumber, voice)
   const res = await fetch(`${API_BASE}/api/jobs/${projectId}/tts-preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -86,7 +105,8 @@ export async function patchScene(
   sceneNumber: number,
   patch: ScenePatch,
 ): Promise<void> {
-  if (isDemoBuild()) return demo.demoPatchScene(projectId, sceneNumber, patch)
+  fenceLegacyRoute(projectId)
+  if (isBrowserFixture(projectId)) return demo.demoPatchScene(projectId, sceneNumber, patch)
   const res = await fetch(
     `${API_BASE}/api/jobs/${projectId}/scenes/scene_${sceneNumber}`,
     {
@@ -106,7 +126,8 @@ export async function patchEntity(
   characterId: string,
   name: string,
 ): Promise<void> {
-  if (isDemoBuild()) return demo.demoPatchEntity()
+  fenceLegacyRoute(projectId)
+  if (isBrowserFixture(projectId)) return demo.demoPatchEntity()
   const res = await fetch(
     `${API_BASE}/api/jobs/${projectId}/entities/${characterId}`,
     {
@@ -139,7 +160,8 @@ export async function requestExport(
   voice: VoiceId,
   format: ExportFmt,
 ): Promise<{ exportId: string; format: ExportFmt }> {
-  if (isDemoBuild()) return demo.demoRequestExport(projectId, voice, format)
+  fenceLegacyRoute(projectId)
+  if (isBrowserFixture(projectId)) return demo.demoRequestExport(projectId, voice, format)
   const res = await fetch(`${API_BASE}/api/jobs/${projectId}/export`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -174,7 +196,8 @@ export async function smartFillScene(
   text: string,
   targetSecs: number,
 ): Promise<SmartFillResult> {
-  if (isDemoBuild()) return demo.demoSmartFill(projectId, text, targetSecs)
+  fenceLegacyRoute(projectId)
+  if (isBrowserFixture(projectId)) return demo.demoSmartFill(projectId, text, targetSecs)
   const res = await fetch(`${API_BASE}/api/jobs/${projectId}/smart-fill`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -190,7 +213,8 @@ export async function smartFillScene(
 export type ServerOverridesMap = Record<string, ServerSceneOverride>
 
 export async function fetchOverrides(projectId: string): Promise<ServerOverridesMap> {
-  if (isDemoBuild()) return demo.demoFetchOverrides(projectId)
+  fenceLegacyRoute(projectId)
+  if (isBrowserFixture(projectId)) return demo.demoFetchOverrides(projectId)
   const res = await fetch(`${API_BASE}/api/jobs/${projectId}/overrides`)
   if (!res.ok) {
     if (res.status === 404) return {}
@@ -203,7 +227,8 @@ export async function pollExport(
   projectId: string,
   exportId: string,
 ): Promise<ExportStatus> {
-  if (isDemoBuild()) return demo.demoPollExport()
+  fenceLegacyRoute(projectId)
+  if (isBrowserFixture(projectId)) return demo.demoPollExport()
   const res = await fetch(`${API_BASE}/api/jobs/${projectId}/export/${exportId}`)
   if (!res.ok) {
     throw new Error(`Export poll failed: ${res.status}`)
@@ -212,7 +237,8 @@ export async function pollExport(
 }
 
 export function exportDownloadUrl(projectId: string, exportId: string, inline = false): string {
-  if (isDemoBuild()) return demo.demoExportUrl(projectId)
+  fenceLegacyRoute(projectId)
+  if (isBrowserFixture(projectId)) return demo.demoExportUrl(projectId)
   const q = inline ? '?inline=1' : ''
   return `${API_BASE}/api/jobs/${projectId}/export/${exportId}/download${q}`
 }

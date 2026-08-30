@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.node.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "types": ["node"],
+    "exactOptionalPropertyTypes": false,
+    "baseUrl": ".",
+    "paths": {
+      "vitest": ["../../node_modules/vitest/dist/index.d.ts", "../../App/node_modules/vitest/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

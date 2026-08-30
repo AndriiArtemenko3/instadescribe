@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'sleep %s\n' "$*" >>"$MOCK_COMMAND_LOG"

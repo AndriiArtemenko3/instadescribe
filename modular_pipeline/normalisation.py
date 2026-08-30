@@ -1,7 +1,11 @@
 import json
+import logging
+import math
 import re
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 PRONOUN_FORMS = {
     "he": {"subj": "he", "obj": "him", "poss": "his"},
@@ -158,7 +162,23 @@ def export_scenes(memory: dict[str, Any], entities: list[dict[str, Any]]) -> lis
     scenes = []
     entities_by_id = {e["id"]: e for e in entities}
 
-    for idx, scene in enumerate(memory.get("scene_history", []), start=1):
+    for scene in memory.get("scene_history", []):
+        start = scene.get("start")
+        end = scene.get("end")
+        bounds_are_finite_numbers = all(
+            not isinstance(bound, bool) and isinstance(bound, int | float) and math.isfinite(bound)
+            for bound in (start, end)
+        )
+        if bounds_are_finite_numbers and end == start:
+            # A final one-frame model chunk can produce a zero-width tail.
+            # It carries no editable interval, so exclude it here before the
+            # app-state and result scene counts are derived. Do not broaden
+            # this to malformed or negative-duration scenes: retaining those
+            # lets the worker's strict artifact boundary reject them.
+            logger.warning("Dropped zero-duration scene during app-state export")
+            continue
+
+        scene_number = len(scenes) + 1
         scene_character_ids = scene.get("character_ids", [])
         raw_caption = scene.get("ad", "")
 
@@ -178,9 +198,11 @@ def export_scenes(memory: dict[str, Any], entities: list[dict[str, Any]]) -> lis
 
         scenes.append(
             {
-                "scene_id": f"scene_{idx}",
-                "start": scene.get("start", 0.0),
-                "end": scene.get("end", 0.0),
+                "scene_id": f"scene_{scene_number}",
+                # Preserve malformed bounds as invalid data rather than
+                # silently manufacturing valid-looking defaults.
+                "start": start,
+                "end": end,
                 "frame_indices": scene.get("frame_indices", []),
                 "character_ids": scene_character_ids,
                 "caption_template": caption_template,

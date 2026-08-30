@@ -15,6 +15,9 @@ import { Button } from '@/components/ui/button'
 import { AppSidebar } from '@/components/app-sidebar'
 import { useAppStore } from '@/store/appStore'
 import { reconcileProjectsWithServer } from '@/lib/uploadApi'
+import { reconcileCloudProjects } from '@/lib/cloudProjects'
+import { isCloudMode } from '@/lib/cloudMode'
+import { isDemoBuild, isStudyMode } from '@/lib/session'
 
 const PAGE_TITLES: Record<string, string> = {
   '/dashboard':          'Home',
@@ -67,8 +70,18 @@ export default function DashboardLayout() {
   const { pathname } = useLocation()
 
   // On every dashboard visit, reconcile local projects against the server:
-  // patches stale fields and recovers any projects missing from the local store.
-  useEffect(() => { reconcileProjectsWithServer() }, [])
+  // patches stale fields and recovers any projects missing from the local
+  // store. Mode-scoped (G7): cloud mode uses ONLY the protected cloud list
+  // (and only once token access exists); demo/study issue no request; the
+  // legacy build keeps its existing reconcile.
+  useEffect(() => {
+    if (isDemoBuild() || isStudyMode()) return
+    if (isCloudMode()) {
+      reconcileCloudProjects()
+      return
+    }
+    reconcileProjectsWithServer()
+  }, [])
 
   return (
     <SidebarProvider>

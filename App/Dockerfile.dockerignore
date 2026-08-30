@@ -1,0 +1,41 @@
+# This Dockerfile-specific allowlist applies when the repository root is the
+# build context. It keeps backend, Terraform, Git metadata and local secrets
+# out of the context while retaining the npm workspace graph.
+**
+!package.json
+!package-lock.json
+!App/
+!App/**
+!packages/
+!packages/sdk/
+!packages/sdk/**
+!packages/cli/
+!packages/cli/**
+
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/*.log
+**/*.tsbuildinfo
+
+**/.env*
+!App/.env.next.example
+**/.git
+**/.gitignore
+**/.DS_Store
+
+App/package-lock.json
+App/src/**/*.test.ts
+App/src/**/*.test.tsx
+App/src/test
+App/vitest.config.ts
+packages/**/test
+packages/**/coverage
+
+# The beta Next BFF never bakes or proxies media. Browser media transfer uses
+# direct signed S3 URLs; only small application icons enter this image.
+App/public/data
+App/public/videos
+App/public/demo
+App/public/vibe.mp4

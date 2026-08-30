@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+printf 'terraform %s\n' "$*" >>"$MOCK_COMMAND_LOG"
+
+case "$*" in
+  *" output -raw api_desired_count")
+    printf '%s\n' "${MOCK_API_DESIRED_COUNT:-0}"
+    ;;
+  *" output -raw worker_desired_count")
+    printf '%s\n' "${MOCK_WORKER_DESIRED_COUNT:-0}"
+    ;;
+  *" output -raw ecs_cluster_name")
+    printf '%s\n' 'instascribe-portfolio'
+    ;;
+  *" output -raw migration_task_definition_arn")
+    printf 'arn:aws:ecs:eu-west-2:%s:task-definition/instascribe-portfolio-migration:1\n' "$MOCK_EXPECTED_ACCOUNT_ID"
+    ;;
+  *" output -raw migration_log_group")
+    printf '%s\n' '/ecs/instascribe-portfolio/migration'
+    ;;
+  *" output -raw api_service_name")
+    printf '%s\n' 'api'
+    ;;
+  *" output -raw api_ready_url")
+    printf '%s\n' 'https://portfolio.example.test/api/readyz'
+    ;;
+  *" output -json migration_network_configuration")
+    printf '%s\n' '{"assign_public_ip":"ENABLED","security_groups":["sg-migration"],"subnets":["subnet-a","subnet-b"]}'
+    ;;
+  *" plan"*|*" apply"*)
+    printf 'forbidden Terraform mutation in verification script\n' >&2
+    exit 90
+    ;;
+  *)
+    printf 'unexpected terraform mock command: %s\n' "$*" >&2
+    exit 91
+    ;;
+esac

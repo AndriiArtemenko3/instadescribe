@@ -73,7 +73,7 @@ class OllamaTextProvider:
         )
 
 
-# InstaScribe's provider-neutral voice names -> Kokoro voices (a = American English).
+# InstaDescribe's provider-neutral voice names -> Kokoro voices (a = American English).
 _KOKORO_VOICE_MAP = {
     "onyx": "am_michael",
     "echo": "am_adam",

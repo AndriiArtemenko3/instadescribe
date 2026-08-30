@@ -1,7 +1,9 @@
 // Talks to the backend's /api/providers endpoints. The picker chooses WHICH model
 // backend runs; API keys stay server-side in .env and are never sent from here.
 
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8765'
+import { legacyApiBase } from './runtimeEnv'
+
+const API_BASE = legacyApiBase()
 
 export interface BackendStatus {
   id: string

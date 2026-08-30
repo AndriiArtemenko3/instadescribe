@@ -3,6 +3,7 @@ import { Plus, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ProjectCard } from '../components/ProjectCard'
 import { useAppStore } from '@/store/appStore'
+import { reportProjectMutationError } from '@/lib/projectMutationFeedback'
 
 const RECENT_COUNT = 4
 
@@ -17,10 +18,10 @@ export default function HomePage() {
     deleteProject(id).catch((e: Error) => window.alert(`Could not delete: ${e.message}`))
   }
   function handleRename(id: string, name: string) {
-    renameProject(id, name).catch((e: Error) => window.alert(`Could not rename: ${e.message}`))
+    renameProject(id, name).catch((error: unknown) => reportProjectMutationError('rename', error))
   }
   function handleToggleStar(id: string) {
-    toggleStar(id).catch((e: Error) => window.alert(`Could not update star: ${e.message}`))
+    toggleStar(id).catch((error: unknown) => reportProjectMutationError('update star', error))
   }
 
   return (

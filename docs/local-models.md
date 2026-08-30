@@ -1,6 +1,6 @@
 # Model providers and running locally
 
-InstaScribe calls a model for exactly three things: **vision** (describe a chunk
+InstaDescribe calls a model for exactly three things: **vision** (describe a chunk
 of frames as structured JSON), **text** (rewrite one description to fit a time
 budget, the Smart Fill), and **TTS** (speak a description to audio). Speech
 detection and transcription already run locally (silero-vad + faster-whisper) and
@@ -14,13 +14,17 @@ model is a config change, not a code change.
 
 Set one environment variable:
 
-| `INSTASCRIBE_BACKEND` | Vision | Text | TTS | Key |
+| `INSTADESCRIBE_BACKEND` | Vision | Text | TTS | Key |
 |---|---|---|---|---|
 | `openai` (default) | gpt-4.1 | gpt-4o-mini | tts-1-hd | `OPENAI_API_KEY` |
 | `anthropic` | claude-opus-4-8 | claude-opus-4-8 | → OpenAI TTS | `ANTHROPIC_API_KEY` |
 | `gemini` | gemini-2.5-flash | gemini-2.5-flash | → OpenAI TTS | `GEMINI_API_KEY` |
 | `local` | Ollama qwen2.5vl:7b | Ollama qwen2.5:7b | Kokoro | none |
 | `fake` | placeholder JSON | deterministic trim | silence | none |
+
+`INSTADESCRIBE_BACKEND` is canonical. The legacy `INSTASCRIBE_BACKEND` alias is
+accepted only during the v0.1 rollback window; conflicting old and new values fail
+closed.
 
 Override one stage at a time with `VISION_PROVIDER`, `TEXT_PROVIDER`, or
 `TTS_PROVIDER` (each `openai | anthropic | gemini | local | fake`). For example,
@@ -49,17 +53,17 @@ keyless server smoke run.
    pip install -r requirements-local.txt
    ```
 
-3. Point InstaScribe at the local backend and run it:
+3. Point InstaDescribe at the local backend and run it:
 
    ```bash
-   INSTASCRIBE_BACKEND=local python modular_pipeline/server.py
+   INSTADESCRIBE_BACKEND=local python modular_pipeline/server.py
    ```
 
 The pipeline now runs end to end with no key and no data leaving the machine.
 
 ## Cloud alternatives: Claude and Gemini
 
-Set `INSTASCRIBE_BACKEND=anthropic` or `gemini` (or the per-capability
+Set `INSTADESCRIBE_BACKEND=anthropic` or `gemini` (or the per-capability
 `VISION_PROVIDER` / `TEXT_PROVIDER`).
 
 - **Claude** uses the official `anthropic` SDK (`pip install -r requirements-providers.txt`,
@@ -88,9 +92,10 @@ Neither ships TTS here, so speech uses OpenAI TTS unless you set `TTS_PROVIDER=l
   is narrower than the vision gap.
 - **ASR — faster-whisper** stays as-is; it is already the local standard.
 
-Licenses were chosen so a commercial or portfolio deploy is unencumbered. Avoided
-as defaults: Llama 3.2 Vision (restrictive license), XTTS-v2 (non-commercial),
-F5-TTS (CC-BY-NC).
+These model choices avoid known model-license blockers for commercial evaluation,
+but every deploy must verify the exact downloaded weights and dependency versions.
+Avoided as defaults: Llama 3.2 Vision (restrictive license), XTTS-v2
+(non-commercial), F5-TTS (CC-BY-NC).
 
 ## The `OPENAI_BASE_URL` shortcut
 

@@ -29,6 +29,9 @@ export function getSceneStatus(scene: Scene, collides = false): SceneStatus {
 export interface Scene {
   id: number
   sceneNumber: number
+  /** Exact canonical pipeline scene id (e.g. "scene_10") — the identity the
+      cloud override PATCH uses. id/sceneNumber are UI ordering only. */
+  sceneKey: string
   startSecs: number
   endSecs: number
   durationSecs: number
@@ -103,9 +106,21 @@ export interface Entity {
 }
 
 export interface Project {
-  id: string
+  id: string // durable product projectId (also the editor route id)
+  /** Exact optimistic-concurrency token for cloud project metadata. */
+  projectVersion?: number
+  /**
+   * Cloud processing-job id (G7). Distinct from the projectId and never
+   * inferred from it: cloud API calls (status/manifest/overrides/scene
+   * PATCH) use jobId; the editor route and store identity use projectId.
+   * Optional so legacy/demo/study projects are unaffected.
+   */
+  jobId?: string
   name: string
-  status: 'processing' | 'ready' | 'draft' | 'failed'
+  status: 'confirmation_pending' | 'processing' | 'ready' | 'draft' | 'failed'
+  /** Source bytes are durable but upload-complete still needs retrying for
+      this exact job. Ordinary session metadata only; never an upload URL. */
+  completionPending?: boolean
   createdAt: string
   durationSecs?: number
   sceneCount?: number

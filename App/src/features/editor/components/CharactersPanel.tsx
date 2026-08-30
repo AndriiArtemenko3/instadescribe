@@ -10,6 +10,8 @@ interface CharactersPanelProps {
   activeTab: RightPanelTab
   onTabChange: (tab: RightPanelTab) => void
   onRename: (characterId: string, newName: string) => Promise<void>
+  /** Cloud mode: entity rename is deferred to the Portfolio Strong release. */
+  cloudDeferred?: boolean
 }
 
 function sceneCountFor(entityId: string, scenes: Scene[]): number {
@@ -17,7 +19,7 @@ function sceneCountFor(entityId: string, scenes: Scene[]): number {
 }
 
 export function CharactersPanel({
-  entities, scenes, activeTab, onTabChange, onRename,
+  entities, scenes, activeTab, onTabChange, onRename, cloudDeferred = false,
 }: CharactersPanelProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [savingId, setSavingId] = useState<string | null>(null)
@@ -29,6 +31,7 @@ export function CharactersPanel({
   }, [entities])
 
   async function commit(entity: Entity) {
+    if (cloudDeferred) return // the input is disabled; nothing to report
     const next = (drafts[entity.id] ?? entity.name).trim()
     if (!next || next === entity.name) {
       setDrafts((d) => { const { [entity.id]: _, ...rest } = d; return rest })
@@ -56,13 +59,23 @@ export function CharactersPanel({
       <RightPanelTabs active={activeTab} onChange={onTabChange} />
 
       {entities.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center p-6 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
+          {cloudDeferred && (
+            <p id="characters-deferred-note" className="text-xs text-neutral-400">
+              Character rename — coming in v0.2.
+            </p>
+          )}
           <p className="text-sm text-neutral-400">
             No characters detected yet. The pipeline populates this list during analysis.
           </p>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {cloudDeferred && (
+            <p id="characters-deferred-note" className="text-xs text-neutral-400">
+              Character rename — coming in v0.2.
+            </p>
+          )}
           {entities.map((e) => {
             const count = sceneCountFor(e.id, scenes)
             const draft = drafts[e.id]
@@ -100,7 +113,8 @@ export function CharactersPanel({
                       if (ev.key === 'Enter') { ev.preventDefault(); commit(e) }
                       else if (ev.key === 'Escape') { ev.preventDefault(); cancel(e.id) }
                     }}
-                    disabled={isSaving}
+                    disabled={isSaving || cloudDeferred}
+                    aria-describedby={cloudDeferred ? 'characters-deferred-note' : undefined}
                   />
                   {isDirty && !isSaving && (
                     <>

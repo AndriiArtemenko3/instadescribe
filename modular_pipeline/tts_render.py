@@ -1,5 +1,5 @@
 """
-TTS render + AD mix utilities for the InstaScribe server.
+TTS render + AD mix utilities for the InstaDescribe server.
 
 Extracted from tts_test.py / tts_test2.py. The CLI scripts stay for
 ad-hoc experiments; the server imports from here.
@@ -30,6 +30,9 @@ DUCK_THRESHOLD = -35.0  # gaps louder than this get ducking
 DUCK_LEVEL = 0.30  # 30% volume of the source during narration
 AD_GAIN = 1.6  # lift the (already loudnorm'd) AD voice over the bed
 SILENCE_FLOOR = -60.0  # treat <= this as silence
+FFPROBE_TIMEOUT_SECS = 30
+SHORT_AUDIO_TIMEOUT_SECS = 300
+FULL_MEDIA_TIMEOUT_SECS = 10800
 
 
 @dataclass
@@ -70,6 +73,7 @@ def get_duration(path: Path) -> float:
         capture_output=True,
         text=True,
         check=True,
+        timeout=FFPROBE_TIMEOUT_SECS,
     )
     return float(result.stdout.strip())
 
@@ -93,10 +97,38 @@ def video_codec(path: Path) -> str:
             capture_output=True,
             text=True,
             check=True,
+            timeout=FFPROBE_TIMEOUT_SECS,
         )
         return result.stdout.strip().lower()
     except Exception:
         return ""
+
+
+def has_audio_stream(path: Path) -> bool:
+    """Return whether ffprobe finds a real source audio stream."""
+
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=index",
+                "-of",
+                "csv=p=0",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=FFPROBE_TIMEOUT_SECS,
+        )
+        return bool(result.stdout.strip())
+    except Exception:
+        return False
 
 
 # Codecs that QuickTime / Safari / most NLEs decode without re-wrap. Anything
@@ -138,6 +170,7 @@ def normalise_audio(src: Path, dst: Path, target_lufs: float = TARGET_LUFS) -> P
         ],
         capture_output=True,
         text=True,
+        timeout=SHORT_AUDIO_TIMEOUT_SECS,
     )
     stderr = pass1.stderr
     j_start, j_end = stderr.rfind("{"), stderr.rfind("}") + 1
@@ -164,6 +197,7 @@ def normalise_audio(src: Path, dst: Path, target_lufs: float = TARGET_LUFS) -> P
         ],
         check=True,
         capture_output=True,
+        timeout=SHORT_AUDIO_TIMEOUT_SECS,
     )
     return dst
 
@@ -194,6 +228,7 @@ def adjust_speed(src: Path, dst: Path, speed: float) -> Path:
         ["ffmpeg", "-y", "-i", str(src), "-filter:a", f"atempo={s}", str(dst)],
         check=True,
         capture_output=True,
+        timeout=SHORT_AUDIO_TIMEOUT_SECS,
     )
     return dst
 
@@ -219,6 +254,7 @@ def measure_gap_lufs(video: Path, start: float, end: float) -> float:
         ],
         capture_output=True,
         text=True,
+        timeout=SHORT_AUDIO_TIMEOUT_SECS,
     )
     match = re.search(r"Summary:.*?I:\s+([-\d.]+|-inf)\s+LUFS", result.stderr, re.DOTALL)
     if not match:
@@ -227,11 +263,15 @@ def measure_gap_lufs(video: Path, start: float, end: float) -> float:
     return SILENCE_FLOOR if raw == "-inf" else max(float(raw), SILENCE_FLOOR)
 
 
-def build_filter_complex(blocks: list[AdBlock]) -> tuple[str, str]:
+def build_filter_complex(
+    blocks: list[AdBlock], *, bed_input_index: int = 0, tts_input_offset: int = 1
+) -> tuple[str, str]:
     """
     Build ffmpeg filter_complex that lays every AD block over [0:a] in one mix.
     Returns (filter_string, output_label).
-    Input indices: 0 = video, 1..N = TTS files in the same order as blocks.
+    By default input 0 supplies the source audio and inputs 1..N are TTS.
+    Callers can instead point ``bed_input_index`` at a generated silent bed
+    and shift ``tts_input_offset`` when a valid source video has no audio.
 
     The background (video audio) ducks DOWN to DUCK_LEVEL inside each AD window
     and plays at full level everywhere else; each AD voice is delayed to its
@@ -252,14 +292,14 @@ def build_filter_complex(blocks: list[AdBlock]) -> tuple[str, str]:
         for b in blocks
         if b.apply_duck
     )
-    parts.append(f"[0:a]{duck_chain}aresample=async=1[bed]")
+    parts.append(f"[{bed_input_index}:a]{duck_chain}aresample=async=1[bed]")
 
     # 2) Each AD voice: delay to its start, then lift over the bed.
     mix_labels = ["[bed]"]
     for i, b in enumerate(blocks):
         delay_ms = int(b.start_secs * 1000)
         ad = f"[ad{i}]"
-        parts.append(f"[{i + 1}:a]adelay={delay_ms}|{delay_ms},volume={AD_GAIN}{ad}")
+        parts.append(f"[{i + tts_input_offset}:a]adelay={delay_ms}|{delay_ms},volume={AD_GAIN}{ad}")
         mix_labels.append(ad)
 
     # 3) Sum (normalize=0 — do NOT average) so the AD keeps its level, then
@@ -284,6 +324,7 @@ def export_with_ad(
     isn't already h264 (e.g. AV1 from YouTube)."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     video_args = _video_output_args(video)
+    source_has_audio = has_audio_stream(video)
 
     if not blocks:
         # No active scenes to narrate; remux (or transcode if needed) the source.
@@ -292,6 +333,19 @@ def export_with_ad(
             "-y",
             "-i",
             str(video),
+        ]
+        if not source_has_audio:
+            cmd += [
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=channel_layout=stereo:sample_rate=48000",
+            ]
+        cmd += [
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0" if source_has_audio else "1:a:0",
             *video_args,
             "-c:a",
             "aac",
@@ -299,15 +353,34 @@ def export_with_ad(
             "192k",
             "-movflags",
             "+faststart",
+            "-shortest",
             str(out_path),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=FULL_MEDIA_TIMEOUT_SECS,
+        )
         if result.returncode != 0:
             raise RuntimeError(f"ffmpeg passthrough failed: {result.stderr[-2000:]}")
         return out_path
 
-    filter_str, final_label = build_filter_complex(blocks)
+    bed_input_index = 0 if source_has_audio else 1
+    tts_input_offset = 1 if source_has_audio else 2
+    filter_str, final_label = build_filter_complex(
+        blocks,
+        bed_input_index=bed_input_index,
+        tts_input_offset=tts_input_offset,
+    )
     cmd = ["ffmpeg", "-y", "-i", str(video)]
+    if not source_has_audio:
+        cmd += [
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=channel_layout=stereo:sample_rate=48000",
+        ]
     for b in blocks:
         cmd += ["-i", str(b.tts_path)]
     cmd += [
@@ -327,7 +400,12 @@ def export_with_ad(
         "-shortest",
         str(out_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=FULL_MEDIA_TIMEOUT_SECS,
+    )
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg mix failed: {result.stderr[-2000:]}")
     return out_path

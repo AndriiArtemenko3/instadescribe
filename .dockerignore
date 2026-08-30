@@ -1,6 +1,11 @@
 # Keep the image small + never ship secrets or scratch state.
 **/node_modules
 **/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
 **/.env
 .env
 _backup-pre-eval-*
@@ -19,3 +24,16 @@ App/public/data/*
 App/public/videos/*
 !App/public/videos/sintel-blender-cc.mp4
 App/public/vibe.mp4
+# Never in any build context: VCS state, virtualenvs, test trees, handoffs.
+.git
+**/.venv
+services/api/tests
+services/worker/tests
+tests
+docs/handoffs
+FABLE5_*_HANDOFF.md
+# Private-key/container credentials never belong in a production context.
+**/*.[pP][eE][mM]
+**/*.[kK][eE][yY]
+**/*.[pP]12
+**/*.[pP][fF][xX]

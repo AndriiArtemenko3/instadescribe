@@ -1,5 +1,9 @@
 """Unit tests for the caption-templating + pronoun-grammar engine."""
 
+import json
+import logging
+import math
+
 import normalisation as N
 
 
@@ -80,3 +84,125 @@ def test_rerender_scenes_respects_locked():
     out = N.rerender_scenes_with_updated_entities(scenes, entities)
     assert out[0]["caption"] == "Indiana runs."
     assert out[1]["caption"] == "old"  # locked scene is left alone
+
+
+def _scene(start, end, *, frame_indices=None, ad="description"):
+    return {
+        "start": start,
+        "end": end,
+        "frame_indices": frame_indices or [],
+        "character_ids": [],
+        "ad": ad,
+    }
+
+
+def test_export_scenes_drops_zero_duration_and_renumbers_retained_scenes(caplog):
+    memory = {
+        "scene_history": [
+            _scene(0.0, 10.0, ad="first"),
+            _scene(10.0, 10.0, ad="zero tail"),
+            _scene(10.0, 20.0, ad="third input"),
+        ]
+    }
+
+    with caplog.at_level(logging.WARNING, logger=N.__name__):
+        scenes = N.export_scenes(memory, [])
+
+    assert [scene["scene_id"] for scene in scenes] == ["scene_1", "scene_2"]
+    assert [(scene["start"], scene["end"]) for scene in scenes] == [
+        (0.0, 10.0),
+        (10.0, 20.0),
+    ]
+    assert caplog.messages == ["Dropped zero-duration scene during app-state export"]
+
+
+def test_export_scenes_drops_one_frame_tail_shape():
+    """A 61-frame / 60-frame-chunk response can leave one frame at t=60."""
+    memory = {
+        "scene_history": [
+            _scene(0.0, 60.0, frame_indices=list(range(60))),
+            _scene(60.0, 60.0, frame_indices=[60], ad="single-frame tail"),
+        ]
+    }
+
+    assert N.export_scenes(memory, []) == [
+        {
+            "scene_id": "scene_1",
+            "start": 0.0,
+            "end": 60.0,
+            "frame_indices": list(range(60)),
+            "character_ids": [],
+            "caption_template": "description",
+            "caption": "description",
+            "render_mode": "auto",
+            "locked": False,
+            "needs_review": False,
+        }
+    ]
+
+
+def test_export_scenes_retains_negative_and_malformed_bounds_for_strict_validation():
+    nan = math.nan
+    memory = {
+        "scene_history": [
+            _scene(5.0, 4.0, ad="negative duration"),
+            _scene("6", "6", ad="string bounds"),
+            _scene(True, True, ad="boolean bounds"),
+            _scene(nan, nan, ad="non-finite bounds"),
+            {"end": 8.0, "character_ids": [], "ad": "missing start"},
+        ]
+    }
+
+    scenes = N.export_scenes(memory, [])
+
+    assert [scene["scene_id"] for scene in scenes] == [
+        "scene_1",
+        "scene_2",
+        "scene_3",
+        "scene_4",
+        "scene_5",
+    ]
+    assert (scenes[0]["start"], scenes[0]["end"]) == (5.0, 4.0)
+    assert (scenes[1]["start"], scenes[1]["end"]) == ("6", "6")
+    assert (scenes[2]["start"], scenes[2]["end"]) == (True, True)
+    assert math.isnan(scenes[3]["start"]) and math.isnan(scenes[3]["end"])
+    assert scenes[4]["start"] is None and scenes[4]["end"] == 8.0
+
+
+def test_export_app_state_counts_only_retained_scenes(tmp_path):
+    memory = {
+        "characters": [],
+        "scene_history": [
+            _scene(0.0, 4.0),
+            _scene(4.0, 4.0, ad="zero"),
+            _scene(4.0, 8.0),
+        ],
+    }
+    summaries = [
+        {
+            "num_chunks": 1,
+            "total_usage": {"input_tokens": 11, "output_tokens": 7, "total_tokens": 18},
+            "chunks": [],
+        }
+    ]
+
+    N.export_app_state(
+        memory=memory,
+        summaries=summaries,
+        out_dir=tmp_path,
+        video_id="job",
+        model="gpt-4.1",
+        image_detail="low",
+        chunk_sizes=[60],
+        num_frames=61,
+    )
+
+    scenes = json.loads((tmp_path / "scenes.json").read_text())
+    system_info = json.loads((tmp_path / "system_info.json").read_text())
+    assert [scene["scene_id"] for scene in scenes] == ["scene_1", "scene_2"]
+    assert system_info["output"]["num_scenes"] == len(scenes) == 2
+    assert system_info["tokens"] == {
+        "input_tokens": 11,
+        "output_tokens": 7,
+        "total_tokens": 18,
+    }
