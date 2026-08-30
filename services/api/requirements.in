@@ -7,7 +7,7 @@
 # (Pure-Python/microframework set: the pins resolve identically for the arm64
 # containers local Docker builds on Apple Silicon.)
 fastapi>=0.115
-uvicorn[standard]>=0.30
+uvicorn[standard]>=0.52.4
 pydantic>=2
 
 # G2 database foundation: synchronous SQLAlchemy 2 + Alembic + psycopg 3
