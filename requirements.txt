@@ -7,7 +7,7 @@ flask>=3.0
 flask-cors>=4.0
 
 # OpenAI: gpt-4.1 (scene drafting), gpt-4o-mini (Smart Fill), tts-1-hd (narration)
-openai>=1.0
+openai>=3.5.0
 python-dotenv>=1.0
 
 # Audio: speech detection + transcription for gap-aware AD placement
