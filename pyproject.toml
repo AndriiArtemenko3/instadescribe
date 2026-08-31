@@ -4,7 +4,16 @@
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-extend-exclude = ["design.md-spec", "_backup-*", "archive", "output", "video_production"]
+extend-exclude = [
+  "design.md-spec",
+  "_backup-*",
+  "archive",
+  "output",
+  "video_production",
+  # Autonomous Apache package: its dedicated Python 3.12 CI job owns the
+  # package-local Ruff configuration and prevents root/product assumptions.
+  "packages/investigation-core",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

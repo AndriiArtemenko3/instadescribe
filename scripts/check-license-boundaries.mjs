@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -52,10 +52,58 @@ for (const packageName of ["sdk", "cli"]) {
   }
 }
 
+const investigationBase = "packages/investigation-core";
+const investigationManifest = read(`${investigationBase}/pyproject.toml`);
+const investigationLicense = read(`${investigationBase}/LICENSE`);
+for (const marker of [
+  'name = "instadescribe-investigation-core"',
+  'requires-python = ">=3.12"',
+  'license = "Apache-2.0"',
+  "dependencies = []",
+]) {
+  requireText(investigationManifest, marker, `${investigationBase}/pyproject.toml`);
+}
+for (const marker of [
+  "Apache License",
+  "Version 2.0, January 2004",
+  "Copyright 2026 Andrii Artemenko",
+]) {
+  requireText(investigationLicense, marker, `${investigationBase}/LICENSE`);
+}
+
+function pythonSources(directory) {
+  return readdirSync(resolve(repository, directory), { withFileTypes: true }).flatMap((entry) => {
+    const path = `${directory}/${entry.name}`;
+    if (entry.isDirectory()) {
+      return pythonSources(path);
+    }
+    return entry.isFile() && entry.name.endsWith(".py") ? [path] : [];
+  });
+}
+
+const prohibitedCoreRoots = [
+  "app",
+  "instadescribe_contracts",
+  "instadescribe_worker",
+  "modular_pipeline",
+  "services",
+];
+const prohibitedCoreImport = new RegExp(
+  `(?:from|import)\\s+(?:${prohibitedCoreRoots.join("|")})(?:\\.|\\s|$)`,
+  "m",
+);
+for (const path of pythonSources(`${investigationBase}/src`)) {
+  if (prohibitedCoreImport.test(read(path))) {
+    throw new Error(`${path} must not import a BUSL-licensed core module`);
+  }
+}
+
 const boundary = read("LICENSING.md").replace(/\s+/g, " ");
 for (const marker of [
   "`packages/sdk/**`",
   "`packages/cli/**`",
+  "`packages/investigation-core/**`",
+  "Apache License 2.0 governs the autonomous investigation baseline",
   "2030-08-29",
   "Versions that were already distributed under MIT remain available under the MIT terms",
   "does not withdraw rights previously granted for earlier versions",

@@ -22,7 +22,7 @@ The committed demonstration uses a segment from **Sintel**:
 
 Python and Node.js dependencies are identified in the repository's requirements,
 package manifests and lockfiles. They remain subject to their own license terms;
-neither the root BUSL-1.1 license nor the nested MIT licenses replace those terms.
+the root BUSL-1.1 and nested MIT/Apache-2.0 licenses do not replace those terms.
 Generated dependency directories such as `node_modules/` and `.venv/` are not part
 of the source distribution.
 
@@ -31,6 +31,13 @@ container environments rather than copied into this source tree. Model weights a
 not bundled in the repository. Before any container image or model bundle is
 distributed publicly, its release gate must generate an SBOM and verify the required
 binary, shared-library, font, codec and model notices for that exact artifact.
+
+The Apache-2.0 investigation baseline under `packages/investigation-core/` has no
+required runtime dependency. Its optional media extra uses Pillow under Pillow's own
+license, and its metadata hook can invoke a separately installed `ffprobe` binary.
+Neither Pillow nor FFmpeg/ffprobe is copied into that package. Observation, OCR, ASR,
+embedding and visual-matching implementations are adapter-provided; no model weights
+or third-party reference imagery are distributed with the baseline.
 
 ## shadcn/ui component sources
 
@@ -84,4 +91,7 @@ SOFTWARE.
 
 The product core is licensed under [BUSL-1.1](./LICENSE). The TypeScript
 [SDK](./packages/sdk/LICENSE) and [CLI](./packages/cli/LICENSE) are separately
-licensed under MIT. See [LICENSING.md](./LICENSING.md) for the complete boundary.
+licensed under MIT. The standalone
+[investigation baseline](./packages/investigation-core/LICENSE) is separately
+licensed under Apache License 2.0. See [LICENSING.md](./LICENSING.md) for the complete
+boundary.
