@@ -43,12 +43,30 @@ See [ADR-0010](./adr/0010-api-first-b2b-beta.md), the current
 [architecture](./architecture.md) and the
 [before/after comparison](./architecture-evolution.md).
 
+## 5. Observable Video Intelligence foundation
+
+The next milestone introduced `video_investigation` as a workflow parallel to
+audio description and published an autonomous Apache-2.0 investigation core. The
+product integration adds tenant-scoped source/evidence/belief/decision persistence,
+a Browser-only local contract, a dedicated queue, fenced worker execution and a
+strict isolated child boundary.
+
+Two deterministic acceptance scenarios cross creation, version-pinned upload,
+queue, worker, persistence, analyst decision and report: one supports a hypothesis
+and one requires abstention. They deliberately perform no model inference or
+public-web request. The investigation workspace, live multimodal run, retrieval,
+persisted replay and benchmark remain later milestones. See
+[Video-investigation foundation](./investigation-architecture.md) and
+[ADR-0011](./adr/0011-observable-video-intelligence.md).
+
 ## Release truth
 
-- Cloud Core v0.1 is the only public AWS deployment represented here. Its static
-  frontend remains published, but API/readiness is unavailable as of `2026-08-29`;
-  the release packet records the earlier healthy verification as dated evidence.
+- Cloud Core v0.1 is the only public AWS deployment represented here. Its release
+  packet records dated deployment and health evidence; this repository makes no
+  claim about its current availability or support status.
 - The API-first beta is implemented and locally verified, not yet cut over.
 - The SDK and CLI are present in source and are not yet published to npm.
+- The investigation foundation is implemented and fixture-verified in source, not
+  deployed and not yet exposed through an analyst workspace.
 - No live customer, billing, SLA, production-readiness or legal-compliance claim is
   made.

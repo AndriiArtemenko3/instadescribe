@@ -1,5 +1,12 @@
 # Model providers and running locally
 
+> **Legacy audio-description documentation:** the providers and commands on this
+> page apply to the retained audio-description pipeline. They do not describe a
+> working video-investigation model path. The current investigation end-to-end proof
+> uses an explicit deterministic fixture with no model inference; live Ollama/Qwen
+> execution fails closed pending a parent-validated proposal handshake and separate
+> runtime/resource verification.
+
 InstaDescribe calls a model for exactly three things: **vision** (describe a chunk
 of frames as structured JSON), **text** (rewrite one description to fit a time
 budget, the Smart Fill), and **TTS** (speak a description to audio). Speech

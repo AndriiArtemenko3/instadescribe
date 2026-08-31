@@ -6,6 +6,9 @@ Security fixes target the latest commit on the default branch and the current be
 line. Historical Cloud Core releases are retained as engineering evidence and are
 not promised ongoing support.
 
+The Apache investigation package, BUSL application and MIT SDK/CLI have different
+license boundaries but share this private reporting channel.
+
 ## Report a vulnerability privately
 
 Do not open a public issue for a suspected vulnerability. Use GitHub's
@@ -28,8 +31,12 @@ details.
 
 ## Security boundary
 
-The API-first beta is implemented and locally verified. The static legacy Cloud
-Core v0.1 frontend remains published, but its API/readiness is unavailable as of
-`2026-08-29`. The repository does not claim production readiness, an SLA or
-customer-data certification. Security issues in either the current source or the
-referenced legacy deployment are still welcome through the private channel above.
+The current video-investigation proof is a deterministic local fixture with no model
+inference or public-web request. Local investigation creation accepts only
+`geolocateProvenance + local`; connected retrieval is not an implemented security
+boundary. The investigation workspace and deployment are also pending.
+
+The repository does not claim production readiness, an SLA or customer-data
+certification. Reports about current source or a referenced historical deployment
+are welcome through the private channel above. Do not place sensitive footage,
+source identities, signed media URLs or private dataset records in a public issue.

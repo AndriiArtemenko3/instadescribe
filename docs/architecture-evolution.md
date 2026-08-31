@@ -1,10 +1,14 @@
-# Architecture evolution: Cloud Core to API-first beta
+# Architecture evolution: from audio description to video investigation
 
 This document shows the capability delta between the historically deployed Cloud
 Core v0.1 and the API-first B2B beta implemented in the repository. It is a
-source-architecture comparison, not a claim that the beta is already deployed. The
-legacy static frontend remains published, while its API/readiness is unavailable as
-of `2026-08-29`.
+source-architecture comparison, not a claim that the beta is already deployed.
+Legacy deployment references are dated release evidence; this comparison makes no
+claim about their current availability or support status.
+
+The repository has since added a parallel Observable Video Intelligence foundation.
+That milestone is implemented and fixture-verified in source; it is not a claim that
+an investigation workspace, live model pipeline or connected service is deployed.
 
 ## Before: bounded browser workflow
 
@@ -60,7 +64,7 @@ flowchart LR
 | Worker safety | Conditional claim, bounded concurrency | Lease/fence cancellation safety, durable attempt journals and cleanup |
 | Browser server | Static Vite application | Next.js App Router plus thin JSON BFF; Vite retained as rollback |
 | Node.js role | Frontend tooling | Web/BFF, MIT TypeScript SDK and MIT CLI; no business-state authority |
-| Deployment status | Historical AWS evidence; static frontend published, API/readiness unavailable as of `2026-08-29` | Implemented and locally verified; isolated beta cutover still pending |
+| Deployment status | Historical AWS release evidence; no current availability or support claim | Implemented and locally verified; isolated beta cutover still pending |
 
 ## Why this is a product change
 
@@ -84,3 +88,31 @@ AWS/Terraform identities are not mechanically renamed.
 
 For implementation details, see [Architecture](./architecture.md) and
 [ADR-0010](./adr/0010-api-first-b2b-beta.md).
+
+## Next domain: observable video investigation
+
+The investigation work reuses the organization, storage, queue and worker-safety
+boundaries without renaming audio-description scenes into evidence.
+
+```mermaid
+flowchart LR
+    CLIENT["Browser API client"] --> API["FastAPI"]
+    API --> DATA["Tenant-scoped source + evidence records"]
+    API --> QUEUE["Dedicated investigation queue"]
+    QUEUE --> WORKER["Fenced local worker"]
+    WORKER --> IPC["Isolated strict-IPC fixture"]
+    IPC --> BELIEF["Evidence + belief + abstention"]
+    BELIEF --> REVIEW["Analyst decision + report"]
+```
+
+| Concern | Audio-description workflow | Investigation foundation |
+|---|---|---|
+| Review unit | Scene and narration decision | Evidence item, belief snapshot and final analyst decision |
+| Output | Atomic accessible-media deliverables | Source/evidence/decision lineage report JSON |
+| Client surface | Browser plus stable Integration API, SDK and CLI | Browser API only; workspace pending |
+| Execution proof | Deterministic editor and pipeline fixtures | Supportive and abstention Browser-to-report fixtures, no model inference |
+| Network posture | Configurable AD providers | Investigation creation currently accepts only `local`; retrieval is absent |
+
+See [Video-investigation foundation](./investigation-architecture.md) and
+[ADR-0011](./adr/0011-observable-video-intelligence.md). The retained AD interfaces
+remain reviewable history rather than the new product's evidence model.
