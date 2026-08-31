@@ -5,7 +5,7 @@ import uuid
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.models import Project
+from app.models import Job, Project
 
 
 class ProjectNotFoundError(Exception):
@@ -25,12 +25,23 @@ def update_project(
     column_values: dict,
     commit_transaction: bool = True,
 ) -> Project:
+    any_job = sa.exists().where(
+        Job.organization_id == organization_id,
+        Job.project_id == Project.id,
+    )
+    audio_job = sa.exists().where(
+        Job.organization_id == organization_id,
+        Job.project_id == Project.id,
+        Job.workflow_kind == "audio_description",
+    )
+    on_audio_surface = sa.or_(~any_job, audio_job)
     stmt = (
         sa.update(Project)
         .where(
             Project.id == project_id,
             Project.organization_id == organization_id,
             Project.version == expected_version,
+            on_audio_surface,
         )
         .values(
             **column_values,
@@ -45,6 +56,7 @@ def update_project(
             sa.select(Project.id).where(
                 Project.id == project_id,
                 Project.organization_id == organization_id,
+                on_audio_surface,
             )
         ).scalar_one_or_none()
         if exists is None:

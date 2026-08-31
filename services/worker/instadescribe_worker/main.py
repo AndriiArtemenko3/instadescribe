@@ -1,10 +1,11 @@
 """Worker entrypoint: deterministic --once mode for tests/smoke, and a
 bounded-shutdown continuous mode for Compose/ECS.
 
-Each loop is deliberately fair and bounded: it consumes at most one SQS
-analysis message, then polls at most one database-authoritative five-format
-render and one per-scene TTS preview. ``--once`` performs exactly that single
-combined cycle; it does not wait for any work kind to appear a second time.
+Each audio-description loop is deliberately fair and bounded: it consumes at
+most one SQS analysis message, then polls at most one database-authoritative
+five-format render and one per-scene TTS preview. A local investigation worker
+polls only its dedicated investigation queue and never claims AD render/TTS
+rows. ``--once`` performs exactly one configured-workflow cycle.
 
 G5.1 B1/B3 hardening: SIGTERM/SIGINT terminate and reap the whole owned
 process TREE (not just the direct child); invalid configuration exits nonzero
@@ -31,6 +32,7 @@ from instadescribe_worker.render import run_render_once
 BACKOFF_INITIAL_SECS = 1.0
 BACKOFF_MAX_SECS = 30.0
 SHUTDOWN_SKIPPED_OUTCOME = "shutdown_skipped"
+WORKFLOW_SKIPPED_OUTCOME = "workflow_skipped"
 
 
 def _shutdown_requested() -> bool:
@@ -56,6 +58,8 @@ def _run_work_cycle(settings) -> tuple[str, str, str]:
     outcome = run_once(settings)
     if _shutdown_requested():
         return outcome, SHUTDOWN_SKIPPED_OUTCOME, SHUTDOWN_SKIPPED_OUTCOME
+    if settings.provider == "local":
+        return outcome, WORKFLOW_SKIPPED_OUTCOME, WORKFLOW_SKIPPED_OUTCOME
     render_outcome = run_render_once(settings)
     if _shutdown_requested():
         return outcome, render_outcome, SHUTDOWN_SKIPPED_OUTCOME
@@ -75,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--once",
         action="store_true",
-        help="run one cycle: at most one analysis, one render and one TTS preview",
+        help="run one bounded cycle for the configured workflow/provider",
     )
     args = parser.parse_args(argv)
     # main() runs once in production; explicit reset keeps repeated unit-test

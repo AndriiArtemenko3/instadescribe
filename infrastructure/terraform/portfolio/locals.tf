@@ -75,6 +75,14 @@ locals {
   deliverable_object_arn       = "${aws_s3_bucket.media.arn}/deliverables/orgs/*/jobs/*/attempts/*"
   preview_object_arn           = "${aws_s3_bucket.media.arn}/previews/orgs/*/jobs/*/requests/*/attempts/*/narration.mp3"
 
+  # Browser investigation POSTs sign exactly one of these object-tag tiers.
+  # The tag key and 1..30 values are mirrored by the API's fail-closed
+  # presigner validation and by the media-bucket lifecycle rules.
+  investigation_retention_tag_key = "instadescribe-retention-days"
+  investigation_retention_tiers = {
+    for days in range(1, 31) : tostring(days) => days
+  }
+
   common_tags = merge(
     {
       Project     = "InstaDescribe"
@@ -101,6 +109,16 @@ locals {
     { name = "DATABASE_PORT", value = tostring(aws_db_instance.postgres.port) },
     { name = "DATABASE_NAME", value = local.effective_database_name },
   ]
+
+  # Browser API publication only. The existing Fargate audio-description
+  # worker intentionally receives neither this URL nor consume permission;
+  # local-worker deployment remains a separately authorized post-foundation step.
+  api_investigation_environment = local.is_beta ? [
+    {
+      name  = "INSTADESCRIBE_INVESTIGATION_QUEUE_URL"
+      value = aws_sqs_queue.investigation[0].url
+    },
+  ] : []
 
   worker_environment = concat(local.container_environment, [
     { name = "INSTADESCRIBE_WORKER_ID", value = "ecs-${var.release_commit_sha}" },

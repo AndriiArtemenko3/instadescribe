@@ -108,6 +108,8 @@ resource "aws_s3_bucket_cors_configuration" "media" {
   bucket = aws_s3_bucket.media.id
 
   cors_rule {
+    # POST Object carries tags in the signed multipart `tagging` field, not an
+    # x-amz-tagging HTTP header. Keep the browser CORS surface exact.
     allowed_headers = ["Content-Type", "x-amz-server-side-encryption", "x-amz-date", "authorization"]
     allowed_methods = ["GET", "HEAD", "POST"]
     allowed_origins = local.is_beta ? [var.app_origin] : ["https://${aws_cloudfront_distribution.app.domain_name}"]
@@ -135,6 +137,39 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
 
     abort_incomplete_multipart_upload {
       days_after_initiation = 1
+    }
+  }
+
+  # The beta's broad uploads rule above remains a 30-day fail-safe for
+  # abandoned legacy/untagged objects. An investigation upload additionally
+  # carries exactly one immutable presigned tier. Matching rules make both
+  # current and noncurrent versions eligible at the analyst-selected 1..30
+  # day boundary, including versions created by reusing a still-live POST
+  # after another version was pinned in PostgreSQL. The exact-version janitor
+  # remains authoritative for every version it did pin.
+  dynamic "rule" {
+    for_each = local.is_beta ? local.investigation_retention_tiers : {}
+
+    content {
+      id     = "expire-investigation-source-${rule.key}d"
+      status = "Enabled"
+
+      filter {
+        and {
+          prefix = "uploads/orgs/"
+          tags = {
+            (local.investigation_retention_tag_key) = rule.key
+          }
+        }
+      }
+
+      expiration {
+        days = rule.value
+      }
+
+      noncurrent_version_expiration {
+        noncurrent_days = rule.value
+      }
     }
   }
 

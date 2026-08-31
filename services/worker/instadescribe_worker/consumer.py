@@ -27,12 +27,14 @@ expired-PROCESSING reclaim and paired SQS visibility heartbeats; delivery is
 still explicitly at-least-once, never exactly-once.
 """
 
+import platform
 from functools import lru_cache
 
 import boto3
 import sqlalchemy as sa
 from app.domain.states import JobState
-from app.models import Job
+from app.models import Investigation, Job
+from app.models import SourceRecord as PersistedSourceRecord
 from app.models.lifecycle import Asset
 from app.services.quota import (
     QuotaExceededError,
@@ -41,9 +43,11 @@ from app.services.quota import (
 )
 from instadescribe_contracts.queue import QueueMessage
 from instadescribe_contracts.settings import StoredJobSettings
+from instadescribe_investigation_core import InvestigationKind
 
 from instadescribe_worker import artifacts as artifacts_mod
 from instadescribe_worker import claim as claim_mod
+from instadescribe_worker import investigation as investigation_mod
 from instadescribe_worker.config import PROVIDER_ALLOWLIST, WorkerSettings, get_worker_settings
 from instadescribe_worker.db import get_sessionmaker
 from instadescribe_worker.executor import (
@@ -58,6 +62,10 @@ from instadescribe_worker.heartbeat import (
     LeaseHeartbeat,
     LeaseLostError,
 )
+from instadescribe_worker.investigation_executor import (
+    execute_local_investigation,
+    host_inference_lease,
+)
 from instadescribe_worker.logging import log
 from instadescribe_worker.media_validation import validate_media
 from instadescribe_worker.progress import ProgressMirror
@@ -65,6 +73,20 @@ from instadescribe_worker.source import download_source, download_verified_asset
 from instadescribe_worker.workspace import build_workspace, write_job_files
 
 SUCCESS_TERMINAL = {JobState.READY_FOR_REVIEW.value, JobState.COMPLETED.value}
+
+
+def _investigation_runtime_provenance(settings: WorkerSettings) -> dict[str, str | None]:
+    host = (
+        "-".join(part.lower() for part in (platform.system(), platform.machine()) if part.strip())
+        or "unknown"
+    )
+    return {
+        "runtime": settings.investigation_runtime,
+        # The isolated result binds this to the runtime-reported version at
+        # finalization. It stays null while preprocessing is in progress.
+        "runtimeVersion": None,
+        "platform": host[:120],
+    }
 
 
 @lru_cache
@@ -86,9 +108,18 @@ def _s3():
 @lru_cache
 def _queue_url() -> str:
     settings = get_worker_settings()
-    if settings.work_queue_url:
-        return settings.work_queue_url
-    return _sqs().get_queue_url(QueueName=settings.work_queue_name)["QueueUrl"]
+    # A local provider is exclusively an investigation worker and therefore
+    # never polls the legacy audio-description queue.  Fake/OpenAI workers
+    # retain the existing v0.1 queue unchanged.
+    if settings.provider == "local":
+        if settings.investigation_queue_url:
+            return settings.investigation_queue_url
+        queue_name = settings.investigation_queue_name
+    else:
+        if settings.work_queue_url:
+            return settings.work_queue_url
+        queue_name = settings.work_queue_name
+    return _sqs().get_queue_url(QueueName=queue_name)["QueueUrl"]
 
 
 def reset_worker_caches() -> None:
@@ -222,6 +253,21 @@ def run_once(settings: WorkerSettings | None = None) -> str:
                 category="provider",
             )
             return "provider_mismatch"
+
+        # Queue isolation is also enforced against durable state before the
+        # atomic claim. A corrupted/misrouted message therefore cannot make a
+        # wrong worker increment attempts or transition the job to PROCESSING.
+        expected_workflow_kind = (
+            "video_investigation" if settings.provider == "local" else "audio_description"
+        )
+        if job.workflow_kind != expected_workflow_kind:
+            log(
+                "message_workflow_mismatch",
+                level="warning",
+                job_id=job.id,
+                category="workflow",
+            )
+            return "workflow_mismatch"
 
         if job.status in SUCCESS_TERMINAL:
             return _ack(
@@ -368,6 +414,16 @@ def _process_claimed(settings: WorkerSettings, session, job: Job, receipt: str) 
             raise JobFailure(
                 FailureCode.INVALID_SETTINGS, "provider is not allowlisted for this worker"
             )
+        if job.workflow_kind == "video_investigation" and provider != "local":
+            raise JobFailure(
+                FailureCode.INVALID_SETTINGS,
+                "video investigation requires the local worker provider",
+            )
+        if job.workflow_kind == "audio_description" and provider == "local":
+            raise JobFailure(
+                FailureCode.INVALID_SETTINGS,
+                "audio description cannot run on the investigation provider",
+            )
         # B4: false provenance is a finite non-retryable failure BEFORE any
         # source/model work — never silent processing under the wrong revision.
         if job.pipeline_revision != settings.pipeline_revision:
@@ -377,14 +433,25 @@ def _process_claimed(settings: WorkerSettings, session, job: Job, receipt: str) 
             )
         # B4: strict stored-settings contract — malformed persisted settings
         # are deterministic invalid_settings, not three retryable crashes.
+        stored_settings = None
+        investigation_settings = None
         try:
-            stored_settings = StoredJobSettings.model_validate(job.settings)
+            if job.workflow_kind == "video_investigation":
+                investigation_settings = (
+                    investigation_mod.StoredInvestigationSettings.model_validate(job.settings)
+                )
+                if job.model is not None:
+                    raise ValueError("investigation jobs do not persist an AD model")
+            elif job.workflow_kind == "audio_description":
+                stored_settings = StoredJobSettings.model_validate(job.settings)
+                if job.model != stored_settings.model:
+                    raise ValueError("job model provenance is inconsistent")
+            else:
+                raise ValueError("unknown workflow kind")
         except Exception:
             raise JobFailure(
-                FailureCode.INVALID_SETTINGS, "persisted settings fail the stored contract"
+                FailureCode.INVALID_SETTINGS, "persisted settings fail the workflow contract"
             ) from None
-        if job.model != stored_settings.model:
-            raise JobFailure(FailureCode.INVALID_SETTINGS, "job model provenance is inconsistent")
         if not job.input_object_key or not job.source_etag:
             raise JobFailure(FailureCode.INVALID_SETTINGS, "job is missing verified source state")
 
@@ -398,6 +465,8 @@ def _process_claimed(settings: WorkerSettings, session, job: Job, receipt: str) 
             settings.max_duration_secs,
             source_name=job.input_object_key,
         )
+        if investigation_settings is not None:
+            investigation_mod.validate_investigation_media_duration(measured_duration)
         # C3: the MEASURED duration is authoritative — persist it under the
         # claim guard before model work; a failed guard is stale ownership.
         try:
@@ -420,6 +489,75 @@ def _process_claimed(settings: WorkerSettings, session, job: Job, receipt: str) 
         if not owns_reconciled_quota:
             log("stale_owner_abort", level="warning", job_id=job.id, phase="duration")
             return "stale_owner"
+
+        if investigation_settings is not None:
+            investigation = session.execute(
+                sa.select(Investigation).where(
+                    Investigation.organization_id == job.organization_id,
+                    Investigation.job_id == job.id,
+                    Investigation.id == investigation_settings.investigation_id,
+                )
+            ).scalar_one_or_none()
+            source_record = session.execute(
+                sa.select(PersistedSourceRecord).where(
+                    PersistedSourceRecord.organization_id == job.organization_id,
+                    PersistedSourceRecord.job_id == job.id,
+                    PersistedSourceRecord.investigation_id
+                    == investigation_settings.investigation_id,
+                )
+            ).scalar_one_or_none()
+            if investigation is None or source_record is None:
+                raise JobFailure(
+                    FailureCode.INVALID_SETTINGS,
+                    "investigation persistence contract is incomplete",
+                )
+            if not investigation_mod.mark_investigation_stage(
+                session,
+                job,
+                token,
+                "preprocessing",
+                runtime_provenance=_investigation_runtime_provenance(settings),
+            ):
+                return "stale_owner"
+            heartbeat.pulse(force=True)
+            if not investigation_mod.mark_investigation_stage(session, job, token, "investigating"):
+                return "stale_owner"
+            parent_source = investigation_mod.parent_source_record(
+                source_record,
+                content_sha256=source_sha,
+            )
+            with host_inference_lease(settings, on_tick=heartbeat.pulse):
+                result = execute_local_investigation(
+                    settings,
+                    media_path=workspace.video_path,
+                    workspace=workspace.job_dir,
+                    source=parent_source,
+                    duration_seconds=measured_duration,
+                    investigation_id=str(investigation.id),
+                    trace_id=str(investigation_mod.parent_trace_id(investigation.id)),
+                    kind=InvestigationKind.GEOLOCATE_PROVENANCE,
+                    on_tick=heartbeat.pulse,
+                )
+            heartbeat.pulse(force=True)
+            finalized = investigation_mod.finalize_investigation(
+                session,
+                job,
+                token,
+                result,
+                source_sha256=source_sha,
+                runtime_provenance=_investigation_runtime_provenance(settings),
+            )
+            if not finalized:
+                log("investigation_finalize_lost_ownership", level="warning", job_id=job.id)
+                return "stale_finalize"
+            log("investigation_ready", job_id=job.id, attempt=job.attempt_count)
+            return _ack(
+                receipt,
+                job_id=job.id,
+                outcome="success",
+                pending_event="success_ack_pending",
+                attempt=job.attempt_count,
+            )
 
         transcript_asset = session.execute(
             sa.select(Asset).where(

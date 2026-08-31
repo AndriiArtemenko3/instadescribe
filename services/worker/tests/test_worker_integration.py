@@ -265,6 +265,27 @@ def test_provider_mismatch_leaves_job_message_and_artifacts_untouched(
     assert db_session.get(Job, job.id).attempt_count == 0
 
 
+def test_workflow_mismatch_is_refused_before_claim(
+    db_session, aws_resources, fake_pipeline, tiny_clip
+):
+    """An investigation message on the AD queue cannot consume an attempt."""
+    job, _ = _seed_job(db_session, aws_resources, tiny_clip)
+    db_session.execute(
+        sa.update(Job).where(Job.id == job.id).values(workflow_kind="video_investigation")
+    )
+    db_session.commit()
+
+    assert run_once() == "workflow_mismatch"
+
+    db_session.expire_all()
+    fresh = db_session.get(Job, job.id)
+    assert fresh.status == JobState.QUEUED.value
+    assert fresh.attempt_count == 0
+    assert fresh.worker_id is None
+    assert db_session.scalar(sa.select(sa.func.count()).select_from(Artifact)) == 0
+    assert not _queue_empty(aws_resources)
+
+
 def test_openai_attempt_policy_mismatch_fails_before_provider_execution(
     db_session, aws_resources, fake_pipeline, tiny_clip, monkeypatch
 ):

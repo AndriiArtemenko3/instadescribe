@@ -15,7 +15,6 @@ from urllib.parse import urlsplit
 from instadescribe_contracts.environment import bridged_environment
 from instadescribe_contracts.provider import (
     OPENAI_G12_MAX_DURATION_SECS,
-    PROVIDER_ALLOWLIST,
     PROVIDER_MAX_ATTEMPTS,
     ProviderName,
 )
@@ -110,8 +109,21 @@ class Settings(BaseSettings):
     work_queue_url: str | None = Field(
         default=None, validation_alias="INSTADESCRIBE_WORK_QUEUE_URL"
     )
+    # Investigation jobs are intentionally isolated from the legacy audio-
+    # description queue.  The default names a new resource; it never renames
+    # or repurposes the deployed v0.1 queue.
+    investigation_queue_name: str = Field(
+        default="instadescribe-investigation",
+        min_length=1,
+        max_length=80,
+        validation_alias="INSTADESCRIBE_INVESTIGATION_QUEUE",
+    )
+    investigation_queue_url: str | None = Field(
+        default=None,
+        validation_alias="INSTADESCRIBE_INVESTIGATION_QUEUE_URL",
+    )
 
-    @field_validator("work_queue_url")
+    @field_validator("work_queue_url", "investigation_queue_url")
     @classmethod
     def _queue_url_shape(cls, v: str | None) -> str | None:
         if v is None:
@@ -120,6 +132,32 @@ class Settings(BaseSettings):
         if not v.startswith(("http://", "https://")) or len(v) > 512:
             raise ValueError("work queue URL must be a bounded http(s) URL")
         return v
+
+    @model_validator(mode="after")
+    def _queue_isolation(self) -> "Settings":
+        if self.work_queue_name == self.investigation_queue_name:
+            raise ValueError("audio-description and investigation queues must be distinct")
+        if (
+            self.work_queue_url is not None
+            and self.investigation_queue_url is not None
+            and self.work_queue_url == self.investigation_queue_url
+        ):
+            raise ValueError("audio-description and investigation queue URLs must be distinct")
+        work_url_name = (
+            urlsplit(self.work_queue_url).path.rstrip("/").rsplit("/", 1)[-1]
+            if self.work_queue_url
+            else None
+        )
+        investigation_url_name = (
+            urlsplit(self.investigation_queue_url).path.rstrip("/").rsplit("/", 1)[-1]
+            if self.investigation_queue_url
+            else None
+        )
+        if work_url_name == self.investigation_queue_name:
+            raise ValueError("audio-description queue URL targets the investigation queue")
+        if investigation_url_name == self.work_queue_name:
+            raise ValueError("investigation queue URL targets the audio-description queue")
+        return self
 
     # --- G3: portfolio limits and spend bounds (server-authoritative) ---
     max_upload_bytes: int = Field(
@@ -183,7 +221,11 @@ class Settings(BaseSettings):
     # code-bounded deployment setting; no environment variable can widen the
     # exact fake/openai set.
     provider: ProviderName = Field(default="fake", validation_alias="INSTADESCRIBE_PROVIDER")
-    provider_allowlist: ClassVar[tuple[ProviderName, ...]] = PROVIDER_ALLOWLIST
+    # ``local`` is an investigation-worker identity, not an audio-description
+    # deployment mode. Investigation creation stamps it explicitly and routes
+    # to the dedicated queue; the shared API provider setting remains bounded
+    # to the two audio-description backends.
+    provider_allowlist: ClassVar[tuple[ProviderName, ...]] = ("fake", "openai")
     model_allowlist: tuple[str, ...] = ("gpt-4.1",)
     fps_allowlist: tuple[float, ...] = (0.5, 1.0)
     frame_quality_allowlist: tuple[str, ...] = ("low",)
@@ -263,6 +305,8 @@ class Settings(BaseSettings):
         # Real-provider G12 is a bounded smoke, not an unbounded public SaaS
         # workload. Fake remains compatible with the existing five-minute
         # local/cloud evaluation path.
+        if self.provider not in self.provider_allowlist:
+            raise ValueError("API provider must be fake or openai")
         if (
             self.deployment_tier != "beta"
             and self.provider == "openai"

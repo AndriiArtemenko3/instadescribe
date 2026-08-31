@@ -27,6 +27,9 @@ AuditAction = Literal[
     "review.finished",
     "member.invited",
     "tts_preview.created",
+    "investigation.created",
+    "investigation.cancelled",
+    "investigation.finalized",
 ]
 
 _RESOURCE_BY_ACTION: dict[str, str] = {
@@ -39,6 +42,9 @@ _RESOURCE_BY_ACTION: dict[str, str] = {
     "review.finished": "review",
     "member.invited": "invitation",
     "tts_preview.created": "tts_preview",
+    "investigation.created": "investigation",
+    "investigation.cancelled": "investigation",
+    "investigation.finalized": "investigation",
 }
 _REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
 

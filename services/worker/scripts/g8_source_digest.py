@@ -22,6 +22,7 @@ _INPUTS: dict[str, dict[str, list[str]]] = {
             "services/worker/Dockerfile",
             "services/worker/requirements.txt",
             "services/worker/requirements.in",
+            "packages/investigation-core/LICENSE",
             ".dockerignore",
             "services/api/app/__init__.py",
             "services/api/app/db/__init__.py",
@@ -38,6 +39,7 @@ _INPUTS: dict[str, dict[str, list[str]]] = {
         "trees": [
             "services/worker/instadescribe_worker",
             "packages/contracts/instadescribe_contracts",
+            "packages/investigation-core/src/instadescribe_investigation_core",
             "services/api/app/domain",
             "services/api/app/models",
             "modular_pipeline",

@@ -220,6 +220,33 @@ data "aws_iam_policy_document" "api_task" {
     resources = ["${aws_s3_bucket.media.arn}/uploads/*"]
   }
 
+  # A tagged PutObject needs PutObjectTagging in addition to PutObject. Keep
+  # that extra permission beta-only, source-video-only, and constrained to
+  # the exact retention key plus the 30 lifecycle-backed values. No runtime
+  # principal receives DeleteObjectTagging.
+  dynamic "statement" {
+    for_each = local.is_beta ? [1] : []
+
+    content {
+      sid       = "TagInvestigationSourceRetention"
+      effect    = "Allow"
+      actions   = ["s3:PutObjectTagging"]
+      resources = [local.source_video_object_arn]
+
+      condition {
+        test     = "ForAllValues:StringEquals"
+        variable = "s3:RequestObjectTagKeys"
+        values   = [local.investigation_retention_tag_key]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "s3:RequestObjectTag/${local.investigation_retention_tag_key}"
+        values   = [for days in values(local.investigation_retention_tiers) : tostring(days)]
+      }
+    }
+  }
+
   statement {
     sid    = "SignManifestArtifactReads"
     effect = "Allow"
@@ -258,6 +285,20 @@ data "aws_iam_policy_document" "api_task" {
       "sqs:SendMessage",
     ]
     resources = [aws_sqs_queue.work.arn]
+  }
+
+  dynamic "statement" {
+    for_each = local.is_beta ? [1] : []
+
+    content {
+      sid    = "PublishLocalInvestigations"
+      effect = "Allow"
+      actions = [
+        "sqs:GetQueueUrl",
+        "sqs:SendMessage",
+      ]
+      resources = [aws_sqs_queue.investigation[0].arn]
+    }
   }
 }
 

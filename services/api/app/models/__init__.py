@@ -8,6 +8,14 @@ from app.models.identity import (
     Principal,
     ServiceAccount,
 )
+from app.models.investigation import (
+    AnalystDecision,
+    BeliefSnapshot,
+    EvidenceItem,
+    Investigation,
+    InvestigationStep,
+    SourceRecord,
+)
 from app.models.job import Job
 from app.models.lifecycle import (
     Asset,
@@ -32,11 +40,16 @@ from app.models.tts_preview import TtsPreview, TtsPreviewArtifact
 
 __all__ = [
     "ApiKey",
+    "AnalystDecision",
     "Asset",
     "Artifact",
     "AuditEvent",
+    "BeliefSnapshot",
     "Deliverable",
+    "EvidenceItem",
     "IdempotencyRecord",
+    "Investigation",
+    "InvestigationStep",
     "Job",
     "JobEvent",
     "Organization",
@@ -53,6 +66,7 @@ __all__ = [
     "Review",
     "SceneOverride",
     "ServiceAccount",
+    "SourceRecord",
     "TtsPreview",
     "TtsPreviewArtifact",
     "WebhookDelivery",

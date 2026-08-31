@@ -125,6 +125,12 @@ def db_engine(migrated_db):
     # Per-test isolation: children first, then jobs, then projects.
     with engine.begin() as conn:
         conn.execute(sa.text("DELETE FROM organization_invitations"))
+        conn.execute(sa.text("DELETE FROM analyst_decisions"))
+        conn.execute(sa.text("DELETE FROM belief_snapshots"))
+        conn.execute(sa.text("DELETE FROM investigation_steps"))
+        conn.execute(sa.text("DELETE FROM evidence_items"))
+        conn.execute(sa.text("DELETE FROM source_records"))
+        conn.execute(sa.text("DELETE FROM investigations"))
         conn.execute(sa.text("DELETE FROM webhook_deliveries"))
         conn.execute(sa.text("DELETE FROM tts_preview_artifacts"))
         conn.execute(sa.text("DELETE FROM tts_previews"))

@@ -98,6 +98,18 @@ for (const path of pythonSources(`${investigationBase}/src`)) {
   }
 }
 
+const workerDockerfile = read("services/worker/Dockerfile");
+requireText(
+  workerDockerfile,
+  "packages/investigation-core/LICENSE /app/licenses/instadescribe-investigation-core/LICENSE",
+  "production worker Dockerfile",
+);
+requireText(
+  workerDockerfile,
+  'grep -q "Apache License" /app/licenses/instadescribe-investigation-core/LICENSE',
+  "production worker Dockerfile",
+);
+
 const boundary = read("LICENSING.md").replace(/\s+/g, " ");
 for (const marker of [
   "`packages/sdk/**`",

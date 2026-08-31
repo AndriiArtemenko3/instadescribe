@@ -44,6 +44,13 @@ def test_api_provider_policy_and_g12_duration_are_exact(monkeypatch):
     with pytest.raises(ValidationError):
         Settings()
 
+    # Local inference is a workflow-specific investigation worker identity.
+    # Allowing it as the API-wide AD provider would create jobs on a queue no
+    # compatible worker consumes.
+    monkeypatch.setenv("INSTADESCRIBE_PROVIDER", "local")
+    with pytest.raises(ValidationError):
+        Settings()
+
 
 def test_beta_allows_the_published_sixty_minute_limit(monkeypatch):
     monkeypatch.setenv("INSTADESCRIBE_PROVIDER", "openai")
@@ -60,6 +67,66 @@ def test_unknown_deployment_tier_fails_closed(monkeypatch):
     monkeypatch.setenv("INSTADESCRIBE_DEPLOYMENT_TIER", "production-ish")
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_workflow_queue_configuration_is_distinct_and_bounded(monkeypatch):
+    settings = Settings()
+    assert settings.work_queue_name == "instascribe-work"
+    assert settings.investigation_queue_name == "instadescribe-investigation"
+
+    monkeypatch.setenv("INSTADESCRIBE_INVESTIGATION_QUEUE", "instascribe-work")
+    with pytest.raises(ValidationError):
+        Settings()
+
+    monkeypatch.setenv("INSTADESCRIBE_INVESTIGATION_QUEUE", "instadescribe-investigation")
+    shared = "http://127.0.0.1:4566/000000000000/shared"
+    monkeypatch.setenv("INSTADESCRIBE_WORK_QUEUE_URL", shared)
+    monkeypatch.setenv("INSTADESCRIBE_INVESTIGATION_QUEUE_URL", shared)
+    with pytest.raises(ValidationError):
+        Settings()
+
+    monkeypatch.delenv("INSTADESCRIBE_WORK_QUEUE_URL")
+    monkeypatch.setenv(
+        "INSTADESCRIBE_INVESTIGATION_QUEUE_URL",
+        "http://127.0.0.1:4566/000000000000/instascribe-work",
+    )
+    with pytest.raises(ValidationError):
+        Settings()
+
+    monkeypatch.setenv("INSTADESCRIBE_INVESTIGATION_QUEUE_URL", "ftp://invalid")
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_sqs_publishers_use_workflow_specific_queue_urls(monkeypatch):
+    import uuid
+    from datetime import UTC, datetime
+
+    from app.services import sqs as sqs_service
+    from instadescribe_contracts.queue import QueueMessage
+
+    sent: list[dict[str, str]] = []
+
+    class Client:
+        def send_message(self, **kwargs):
+            sent.append(kwargs)
+
+    message = QueueMessage(
+        schema_version=1,
+        message_id=uuid.uuid4(),
+        task_type="ANALYZE",
+        job_id=uuid.UUID("00000000-0000-4000-8000-000000000101"),
+        requested_at=datetime.now(UTC),
+    )
+    monkeypatch.setattr(sqs_service, "_sqs_client", lambda: Client())
+    monkeypatch.setattr(sqs_service, "work_queue_url", lambda: "audio-queue")
+    monkeypatch.setattr(sqs_service, "investigation_queue_url", lambda: "investigation-queue")
+
+    sqs_service.send_task_message(message)
+    sqs_service.send_investigation_task_message(message)
+
+    assert [entry["QueueUrl"] for entry in sent] == ["audio-queue", "investigation-queue"]
+    assert sent[0]["MessageBody"] == sent[1]["MessageBody"] == message.to_body()
 
 
 def test_pipeline_revision_trim_and_bound(monkeypatch):

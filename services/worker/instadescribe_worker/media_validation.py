@@ -11,7 +11,10 @@ untrusted upload hint.
 """
 
 import json
+import os
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from instadescribe_contracts.settings import EXTENSION_CONTENT_TYPES
@@ -25,6 +28,20 @@ _EXTENSION_FORMAT_TOKENS = {
     ".mov": {"mov", "mp4", "m4a", "3gp", "3g2", "mj2"},
     ".webm": {"webm", "matroska"},
 }
+_EXTENSION_DEMUXERS = {".mp4": "mov", ".mov": "mov", ".webm": "matroska,webm"}
+_MAX_PROBE_BYTES = 1_000_000
+_MAX_STREAMS = 32
+_MAX_DIMENSION = 8_192
+_MAX_FRAME_PIXELS = 33_177_600  # 8K UHD, before bounded keyframe scaling.
+
+
+def _probe_environment() -> dict[str, str]:
+    """No application credentials or host HOME reach the media parser."""
+
+    return {
+        "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+    }
 
 
 def validate_media(
@@ -43,36 +60,88 @@ def validate_media(
             "stored content type does not pair with the stored filename extension",
         )
     expected_tokens = _EXTENSION_FORMAT_TOKENS[extension]
+    probe_environment = _probe_environment()
+    probe_executable = shutil.which("ffprobe", path=probe_environment["PATH"])
+    if probe_executable is None:
+        raise JobFailure(FailureCode.PIPELINE_FAILED, "media probe is unavailable")
     try:
-        probe = subprocess.run(
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-print_format",
-                "json",
-                "-show_format",
-                "-show_streams",
-                str(path),
-            ],
-            capture_output=True,
-            timeout=60,
-        )
+        with tempfile.TemporaryFile() as output:
+            probe = subprocess.run(
+                [
+                    probe_executable,
+                    "-max_alloc",
+                    "67108864",
+                    "-v",
+                    "error",
+                    "-protocol_whitelist",
+                    "file,pipe",
+                    "-max_streams",
+                    str(_MAX_STREAMS),
+                    "-f",
+                    _EXTENSION_DEMUXERS[extension],
+                    *(
+                        ["-enable_drefs", "0", "-use_absolute_path", "0"]
+                        if extension in {".mp4", ".mov"}
+                        else []
+                    ),
+                    "-print_format",
+                    "json",
+                    "-show_entries",
+                    "format=duration,format_name:stream=codec_type,width,height",
+                    str(path),
+                ],
+                stdout=output,
+                stderr=subprocess.DEVNULL,
+                env=probe_environment,
+                timeout=60,
+            )
+            output.seek(0)
+            probe_body = output.read(_MAX_PROBE_BYTES + 1)
+    except OSError:
+        raise JobFailure(FailureCode.PIPELINE_FAILED, "media probe is unavailable") from None
     except subprocess.TimeoutExpired:
         raise JobFailure(FailureCode.INVALID_MEDIA, "media probe timed out") from None
     if probe.returncode != 0:
-        raise JobFailure(FailureCode.INVALID_MEDIA, "media is not a readable video file")
+        raise JobFailure(
+            FailureCode.INVALID_MEDIA,
+            "media container is not a readable video file",
+        )
+    if len(probe_body) > _MAX_PROBE_BYTES:
+        raise JobFailure(FailureCode.INVALID_MEDIA, "media probe output exceeds safety bounds")
     try:
-        data = json.loads(probe.stdout)
-    except json.JSONDecodeError:
+        data = json.loads(probe_body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
         raise JobFailure(FailureCode.INVALID_MEDIA, "media probe output unreadable") from None
+    if not isinstance(data, dict) or not isinstance(data.get("format"), dict):
+        raise JobFailure(FailureCode.INVALID_MEDIA, "media probe output unreadable")
 
     streams = data.get("streams", [])
-    if not any(s.get("codec_type") == "video" for s in streams):
+    if (
+        not isinstance(streams, list)
+        or len(streams) > _MAX_STREAMS
+        or any(not isinstance(stream, dict) for stream in streams)
+    ):
+        raise JobFailure(FailureCode.INVALID_MEDIA, "media stream count exceeds safety bounds")
+    video_streams = [stream for stream in streams if stream.get("codec_type") == "video"]
+    if not video_streams:
         raise JobFailure(FailureCode.INVALID_MEDIA, "no video stream present")
+    for stream in video_streams:
+        width, height = stream.get("width"), stream.get("height")
+        if (
+            isinstance(width, bool)
+            or isinstance(height, bool)
+            or not isinstance(width, int)
+            or not isinstance(height, int)
+            or width <= 0
+            or height <= 0
+            or width > _MAX_DIMENSION
+            or height > _MAX_DIMENSION
+            or width * height > _MAX_FRAME_PIXELS
+        ):
+            raise JobFailure(FailureCode.INVALID_MEDIA, "video dimensions exceed safety bounds")
 
     try:
-        duration = float(data.get("format", {}).get("duration", ""))
+        duration = float(data["format"].get("duration", ""))
     except (TypeError, ValueError):
         raise JobFailure(FailureCode.INVALID_MEDIA, "media duration unreadable") from None
     if not duration > 0:
@@ -83,7 +152,10 @@ def validate_media(
             f"media exceeds the {max_duration_secs}s portfolio limit",
         )
 
-    format_tokens = set((data.get("format", {}).get("format_name") or "").split(","))
+    format_name = data["format"].get("format_name")
+    if not isinstance(format_name, str):
+        raise JobFailure(FailureCode.INVALID_MEDIA, "media container format is unreadable")
+    format_tokens = set(format_name.split(","))
     if not (format_tokens & expected_tokens):
         raise JobFailure(
             FailureCode.INVALID_MEDIA,

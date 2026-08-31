@@ -9,12 +9,13 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "services" / "worker"))
 sys.path.insert(1, str(REPO / "services" / "api"))
 sys.path.insert(2, str(REPO / "packages" / "contracts"))
-sys.path.insert(3, str(REPO / "services" / "api" / "tests"))  # db_isolation guard
+sys.path.insert(3, str(REPO / "packages" / "investigation-core" / "src"))
+sys.path.insert(4, str(REPO / "services" / "api" / "tests"))  # db_isolation guard
 # The production image exposes /app through PYTHONPATH, which is what makes
 # the dependency-free ``modular_pipeline.timed_transcript`` package importable
 # in the database-owning worker process. Mirror that root explicitly so both
 # ``pytest`` (console script) and ``python -m pytest`` exercise the same graph.
-sys.path.insert(4, str(REPO))
+sys.path.insert(5, str(REPO))
 
 from instadescribe_contracts.environment import getenv_compat  # noqa: E402
 
@@ -124,6 +125,12 @@ def db_session(worker_env):
 
     engine = get_engine()
     with engine.begin() as conn:
+        conn.execute(sa.text("DELETE FROM analyst_decisions"))
+        conn.execute(sa.text("DELETE FROM belief_snapshots"))
+        conn.execute(sa.text("DELETE FROM investigation_steps"))
+        conn.execute(sa.text("DELETE FROM evidence_items"))
+        conn.execute(sa.text("DELETE FROM source_records"))
+        conn.execute(sa.text("DELETE FROM investigations"))
         conn.execute(sa.text("DELETE FROM webhook_deliveries"))
         conn.execute(sa.text("DELETE FROM tts_preview_artifacts"))
         conn.execute(sa.text("DELETE FROM tts_previews"))

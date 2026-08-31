@@ -37,6 +37,22 @@ output "dlq_url" {
   value = aws_sqs_queue.dlq.url
 }
 
+output "investigation_queue" {
+  description = "Beta-only queue identity for an explicitly operated local worker; null in the legacy portfolio stack."
+  value = local.is_beta ? {
+    url = aws_sqs_queue.investigation[0].url
+    arn = aws_sqs_queue.investigation[0].arn
+  } : null
+}
+
+output "investigation_dlq" {
+  description = "Beta-only investigation dead-letter queue identity; null in the legacy portfolio stack."
+  value = local.is_beta ? {
+    url = aws_sqs_queue.investigation_dlq[0].url
+    arn = aws_sqs_queue.investigation_dlq[0].arn
+  } : null
+}
+
 output "rds_endpoint" {
   value = aws_db_instance.postgres.endpoint
 }

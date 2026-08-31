@@ -205,8 +205,16 @@ def collect_operational_metrics(
                 WebhookEndpoint,
                 WebhookEndpoint.organization_id == JobEvent.organization_id,
             )
+            .join(
+                Job,
+                sa.and_(
+                    Job.organization_id == JobEvent.organization_id,
+                    Job.id == JobEvent.job_id,
+                ),
+            )
             .where(
                 JobEvent.event_type.in_(PUBLIC_WEBHOOK_EVENTS),
+                Job.workflow_kind == "audio_description",
                 JobEvent.dispatched_at.is_(None),
                 JobEvent.available_at <= now,
                 WebhookEndpoint.is_active.is_(True),
@@ -275,8 +283,16 @@ def materialize_public_deliveries(
                 WebhookEndpoint,
                 WebhookEndpoint.organization_id == JobEvent.organization_id,
             )
+            .join(
+                Job,
+                sa.and_(
+                    Job.organization_id == JobEvent.organization_id,
+                    Job.id == JobEvent.job_id,
+                ),
+            )
             .where(
                 JobEvent.event_type.in_(PUBLIC_WEBHOOK_EVENTS),
+                Job.workflow_kind == "audio_description",
                 JobEvent.dispatched_at.is_(None),
                 JobEvent.available_at <= instant,
                 WebhookEndpoint.is_active.is_(True),
@@ -328,9 +344,17 @@ def claim_due_delivery(
                         JobEvent.id == WebhookDelivery.event_id,
                     ),
                 )
+                .join(
+                    Job,
+                    sa.and_(
+                        Job.organization_id == JobEvent.organization_id,
+                        Job.id == JobEvent.job_id,
+                    ),
+                )
                 .where(
                     WebhookEndpoint.is_active.is_(True),
                     JobEvent.event_type.in_(PUBLIC_WEBHOOK_EVENTS),
+                    Job.workflow_kind == "audio_description",
                     sa.or_(
                         sa.and_(
                             WebhookDelivery.state.in_(("pending", "retry_scheduled")),

@@ -52,6 +52,7 @@ resource "aws_ecs_task_definition" "api" {
       ]
       environment = concat(
         local.container_environment,
+        local.api_investigation_environment,
         local.api_browser_auth_environment,
         local.webhook_dispatcher_environment,
         [

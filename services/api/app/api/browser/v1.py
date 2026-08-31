@@ -23,13 +23,14 @@ from app.api.browser.auth import (
     require_browser_upload_principal,
 )
 from app.api.integrations.lifecycle import deliverables_body, render_body, review_body
-from app.api.integrations.problems import IntegrationProblem
+from app.api.integrations.problems import INTEGRATION_PROBLEM_RESPONSES, IntegrationProblem
 from app.api.integrations.v1 import (
     cancel_job_for_principal,
     complete_upload_for_principal,
     create_job_for_principal,
     get_job_for_principal,
 )
+from app.api.jobs import mirror_investigation_upload_acceptance
 from app.api.manifest import get_manifest_for_organization
 from app.api.scenes import get_overrides_for_organization, patch_scene_for_organization
 from app.core.config import get_settings
@@ -304,7 +305,20 @@ def list_browser_projects(
             )
             .label("row_number"),
         )
+        .where(
+            Job.organization_id == principal.organization_id,
+            Job.workflow_kind == "audio_description",
+        )
+        .subquery()
+    )
+    all_jobs = (
+        sa.select(
+            Job.organization_id.label("organization_id"),
+            Job.project_id.label("project_id"),
+            sa.func.count(Job.id).label("job_count"),
+        )
         .where(Job.organization_id == principal.organization_id)
+        .group_by(Job.organization_id, Job.project_id)
         .subquery()
     )
     effective_updated_at = sa.func.coalesce(
@@ -336,7 +350,17 @@ def list_browser_projects(
                 latest_jobs.c.row_number == 1,
             ),
         )
-        .where(Project.organization_id == principal.organization_id)
+        .outerjoin(
+            all_jobs,
+            sa.and_(
+                all_jobs.c.organization_id == Project.organization_id,
+                all_jobs.c.project_id == Project.id,
+            ),
+        )
+        .where(
+            Project.organization_id == principal.organization_id,
+            sa.or_(latest_jobs.c.job_id.is_not(None), all_jobs.c.job_count.is_(None)),
+        )
         .order_by(effective_updated_at.desc(), Project.id.desc())
         .limit(_MAX_BROWSER_PROJECTS + 1)
     )
@@ -518,7 +542,10 @@ def get_browser_job(
     "/jobs/{job_id}/uploads/complete",
     status_code=202,
     response_model=IntegrationJobResponse,
-    responses={200: {"model": IntegrationJobResponse, "description": "Already accepted"}},
+    responses={
+        200: {"model": IntegrationJobResponse, "description": "Already accepted"},
+        422: INTEGRATION_PROBLEM_RESPONSES[422],
+    },
     operation_id="completeBrowserUpload",
 )
 def complete_browser_upload(
@@ -528,12 +555,43 @@ def complete_browser_upload(
     idempotency_key: BrowserIdempotencyKey,
     db: Session = Depends(get_db),
 ) -> JSONResponse:
+    try:
+        parsed_job_id = uuid.UUID(job_id)
+    except ValueError:
+        parsed_job_id = None
+    if parsed_job_id is not None and parsed_job_id.int != 0:
+        try:
+            # Repairs the only possible split-brain left by a pre-pivot API
+            # process before an idempotency replay can return early.
+            if mirror_investigation_upload_acceptance(
+                db,
+                parsed_job_id,
+                principal.organization_id,
+            ):
+                db.commit()
+        except HTTPException as exc:
+            raise IntegrationProblem(
+                exc.status_code,
+                "investigation_state_conflict",
+                "Investigation conflict",
+                "The investigation upload state could not be reconciled.",
+            ) from None
+        except SQLAlchemyError:
+            db.rollback()
+            raise IntegrationProblem(
+                503,
+                "persistence_unavailable",
+                "Persistence unavailable",
+                "The investigation upload state could not be reconciled.",
+                retryable=True,
+            ) from None
     response = complete_upload_for_principal(
         job_id,
         request,
         _service_principal(principal),
         db,
         idempotency_key,
+        allow_video_investigation=True,
     )
     response.headers["Cache-Control"] = "private, no-store"
     return response

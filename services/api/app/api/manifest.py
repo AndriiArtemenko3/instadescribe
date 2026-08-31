@@ -75,6 +75,8 @@ def get_manifest_for_organization(
     if row is None:  # absent job OR a project ID supplied as a job ID
         raise _http_error(404, "not_found", "not found")
     job, project = row.Job, row.Project
+    if job.workflow_kind != "audio_description":
+        raise _http_error(404, "not_found", "not found")
     if job.status != JobState.READY_FOR_REVIEW.value:
         raise _http_error(409, "artifacts_not_ready", "artifacts are not ready for review")
 

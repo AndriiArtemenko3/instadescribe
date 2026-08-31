@@ -6,8 +6,10 @@ or invalid required configuration fails fast WITHOUT printing secret values
 entrypoint additionally reduces any validation failure to a category event).
 """
 
+import re
 from functools import lru_cache
-from typing import ClassVar
+from typing import ClassVar, Literal
+from urllib.parse import urlsplit
 
 from instadescribe_contracts.environment import bridged_environment
 from instadescribe_contracts.provider import (
@@ -47,6 +49,52 @@ class WorkerSettings(BaseSettings):
     provider: ProviderName = Field(default="fake", validation_alias="INSTADESCRIBE_PROVIDER")
     provider_allowlist: ClassVar[tuple[ProviderName, ...]] = PROVIDER_ALLOWLIST
     openai_api_key: SecretStr | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+    investigation_runtime: Literal["ollama", "fixture"] = Field(
+        default="ollama", validation_alias="INSTADESCRIBE_INVESTIGATION_RUNTIME"
+    )
+    investigation_test_fixture_enabled: bool = Field(
+        default=False,
+        validation_alias="INSTADESCRIBE_TEST_FIXTURE_RUNTIME",
+    )
+    investigation_test_fixture_scenario: Literal["supportive", "abstention"] = Field(
+        default="supportive",
+        validation_alias="INSTADESCRIBE_TEST_FIXTURE_SCENARIO",
+    )
+    investigation_model: str = Field(
+        default="qwen3.5:4b",
+        min_length=1,
+        max_length=120,
+        validation_alias="INSTADESCRIBE_INVESTIGATION_MODEL",
+    )
+    investigation_ollama_url: str = Field(
+        default="http://127.0.0.1:11434",
+        max_length=200,
+        validation_alias="INSTADESCRIBE_OLLAMA_URL",
+    )
+    investigation_timeout_secs: int = Field(
+        default=180,
+        ge=30,
+        le=900,
+        validation_alias="INSTADESCRIBE_INVESTIGATION_TIMEOUT_SECS",
+    )
+    investigation_max_keyframes: int = Field(
+        default=16,
+        ge=4,
+        le=24,
+        validation_alias="INSTADESCRIBE_INVESTIGATION_MAX_KEYFRAMES",
+    )
+    investigation_batch_size: int = Field(
+        default=4,
+        ge=4,
+        le=8,
+        validation_alias="INSTADESCRIBE_INVESTIGATION_BATCH_SIZE",
+    )
+    investigation_image_long_edge: int = Field(
+        default=1024,
+        ge=768,
+        le=1024,
+        validation_alias="INSTADESCRIBE_INVESTIGATION_IMAGE_LONG_EDGE",
+    )
     aws_region: str = Field(default="eu-west-2", validation_alias="AWS_DEFAULT_REGION")
     s3_endpoint_internal: str | None = Field(
         default=None, validation_alias="INSTADESCRIBE_S3_ENDPOINT_INTERNAL"
@@ -67,6 +115,16 @@ class WorkerSettings(BaseSettings):
     )
     work_queue_url: str | None = Field(
         default=None, validation_alias="INSTADESCRIBE_WORK_QUEUE_URL"
+    )
+    investigation_queue_name: str = Field(
+        default="instadescribe-investigation",
+        min_length=1,
+        max_length=80,
+        validation_alias="INSTADESCRIBE_INVESTIGATION_QUEUE",
+    )
+    investigation_queue_url: str | None = Field(
+        default=None,
+        validation_alias="INSTADESCRIBE_INVESTIGATION_QUEUE_URL",
     )
 
     worker_id: str = Field(
@@ -184,7 +242,7 @@ class WorkerSettings(BaseSettings):
             raise ValueError("pipeline revision must be 1-120 characters after trimming")
         return v
 
-    @field_validator("work_queue_url")
+    @field_validator("work_queue_url", "investigation_queue_url")
     @classmethod
     def _queue_url_shape(cls, v: str | None) -> str | None:
         if v is None:
@@ -193,6 +251,36 @@ class WorkerSettings(BaseSettings):
         if not v.startswith(("http://", "https://")) or len(v) > 512:
             raise ValueError("work queue URL must be a bounded http(s) URL")
         return v
+
+    @field_validator("investigation_model")
+    @classmethod
+    def _investigation_model_shape(cls, value: str) -> str:
+        value = value.strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}", value):
+            raise ValueError("investigation model identifier is invalid")
+        return value
+
+    @field_validator("investigation_ollama_url")
+    @classmethod
+    def _loopback_ollama_only(cls, value: str) -> str:
+        parsed = urlsplit(value.strip())
+        if (
+            parsed.scheme != "http"
+            or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in {"", "/"}
+        ):
+            raise ValueError("Ollama URL must be a credential-free loopback HTTP origin")
+        try:
+            port = parsed.port
+        except ValueError as error:
+            raise ValueError("Ollama URL port is invalid") from error
+        if port is None or not 1 <= port <= 65535:
+            raise ValueError("Ollama URL must include a valid port")
+        return value.strip().rstrip("/")
 
     @field_validator("deployment_tier")
     @classmethod
@@ -203,6 +291,28 @@ class WorkerSettings(BaseSettings):
 
     @model_validator(mode="after")
     def _g12_provider_requirements(self) -> "WorkerSettings":
+        if self.work_queue_name == self.investigation_queue_name:
+            raise ValueError("audio-description and investigation queues must be distinct")
+        if (
+            self.work_queue_url is not None
+            and self.investigation_queue_url is not None
+            and self.work_queue_url == self.investigation_queue_url
+        ):
+            raise ValueError("audio-description and investigation queue URLs must be distinct")
+        work_url_name = (
+            urlsplit(self.work_queue_url).path.rstrip("/").rsplit("/", 1)[-1]
+            if self.work_queue_url
+            else None
+        )
+        investigation_url_name = (
+            urlsplit(self.investigation_queue_url).path.rstrip("/").rsplit("/", 1)[-1]
+            if self.investigation_queue_url
+            else None
+        )
+        if work_url_name == self.investigation_queue_name:
+            raise ValueError("audio-description queue URL targets the investigation queue")
+        if investigation_url_name == self.work_queue_name:
+            raise ValueError("investigation queue URL targets the audio-description queue")
         if self.provider == "openai":
             key = self.openai_api_key.get_secret_value() if self.openai_api_key else ""
             if not key or key != key.strip():
@@ -225,6 +335,21 @@ class WorkerSettings(BaseSettings):
                 and self.subprocess_timeout_secs < self.max_duration_secs * 2
             ):
                 raise ValueError("beta OpenAI subprocess timeout is below the duration bound")
+        if self.investigation_runtime == "fixture" and (
+            self.provider != "local"
+            or not self.investigation_test_fixture_enabled
+            or self.deployment_tier == "beta"
+        ):
+            # Synthetic evidence must require an unmistakable local/test opt-in
+            # and can never be enabled in the beta deployment tier.
+            raise ValueError("fixture investigation runtime is disabled")
+        if self.investigation_test_fixture_enabled and self.investigation_runtime != "fixture":
+            raise ValueError("fixture runtime opt-in requires the fixture runtime")
+        if (
+            self.investigation_test_fixture_scenario != "supportive"
+            and self.investigation_runtime != "fixture"
+        ):
+            raise ValueError("fixture scenario requires the fixture runtime")
         if self.deployment_tier != "beta" and self.subprocess_timeout_secs > 1700:
             raise ValueError("portfolio subprocess timeout must not exceed 1700 seconds")
         if self.max_attempts != PROVIDER_MAX_ATTEMPTS[self.provider]:
