@@ -162,7 +162,7 @@ z_h = \log \pi_h + \sum_g w_g s_g(h)
 $$
 
 $$
-p(h \mid E) = \operatorname{softmax}(z_h / T)
+p(h \mid E) = \mathrm{softmax}(z_h / T)
 $$
 
 Within a group, the baseline avoids treating multiple readings of one physical clue
