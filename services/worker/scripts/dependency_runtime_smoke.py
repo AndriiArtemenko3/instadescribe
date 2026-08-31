@@ -30,9 +30,16 @@ def _bootstrap_repo_imports() -> None:
     for root in Path(__file__).resolve().parents:
         worker = root / "services" / "worker"
         contracts = root / "packages" / "contracts"
+        investigation_core = root / "packages" / "investigation-core" / "src"
         api = root / "services" / "api"
-        if worker.is_dir() and contracts.is_dir() and api.is_dir():
-            sys.path[:0] = [str(root), str(worker), str(contracts), str(api)]
+        if worker.is_dir() and contracts.is_dir() and investigation_core.is_dir() and api.is_dir():
+            sys.path[:0] = [
+                str(root),
+                str(worker),
+                str(contracts),
+                str(api),
+                str(investigation_core),
+            ]
             return
 
 

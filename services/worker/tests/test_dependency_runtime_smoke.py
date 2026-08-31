@@ -18,6 +18,46 @@ import dependency_runtime_smoke as smoke  # noqa: E402
 import g8_image_proof  # noqa: E402
 
 
+def _fake_runtime_source_graph(tmp_path: Path, *, include_core: bool = True) -> tuple[Path, Path]:
+    repo = tmp_path / "repo"
+    script = repo / "services" / "worker" / "scripts" / "dependency_runtime_smoke.py"
+    script.parent.mkdir(parents=True)
+    (repo / "packages" / "contracts").mkdir(parents=True)
+    (repo / "services" / "api").mkdir(parents=True)
+    if include_core:
+        (repo / "packages" / "investigation-core" / "src").mkdir(parents=True)
+    return repo, script
+
+
+def test_repo_bootstrap_exposes_investigation_core_source_root(monkeypatch, tmp_path):
+    repo, script = _fake_runtime_source_graph(tmp_path)
+    existing_path = ["pre-existing-path"]
+    monkeypatch.setattr(smoke, "__file__", str(script))
+    monkeypatch.setattr(sys, "path", existing_path.copy())
+
+    smoke._bootstrap_repo_imports()
+
+    assert sys.path == [
+        str(repo),
+        str(repo / "services" / "worker"),
+        str(repo / "packages" / "contracts"),
+        str(repo / "services" / "api"),
+        str(repo / "packages" / "investigation-core" / "src"),
+        *existing_path,
+    ]
+
+
+def test_repo_bootstrap_requires_complete_runtime_source_graph(monkeypatch, tmp_path):
+    _, script = _fake_runtime_source_graph(tmp_path, include_core=False)
+    existing_path = ["pre-existing-path"]
+    monkeypatch.setattr(smoke, "__file__", str(script))
+    monkeypatch.setattr(sys, "path", existing_path.copy())
+
+    smoke._bootstrap_repo_imports()
+
+    assert sys.path == existing_path
+
+
 def test_worker_profile_does_not_cross_local_audio_boundary(monkeypatch):
     calls: list[str] = []
     monkeypatch.setattr(smoke, "run_worker_checks", lambda: calls.append("worker") or {"w": 1})
