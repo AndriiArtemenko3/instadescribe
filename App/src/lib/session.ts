@@ -11,6 +11,8 @@ const SESSION_KEY = 'instascribe:studySessionId'
 const CONSENT_KEY = 'instascribe:studyConsent'
 const TOUR_KEY = 'instascribe:studyTourDone'
 const TASKS_KEY = 'instascribe:studyTasks'
+const SECURE_SESSION_ID_RE =
+  /^s-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 
 export function isStudyMode(): boolean {
   return publicFlag('studyMode')
@@ -25,15 +27,37 @@ export function isDemoBuild(): boolean {
   return publicFlag('demoMode')
 }
 
+function secureSessionUuid(): string {
+  const webCrypto = globalThis.crypto
+  if (!webCrypto) {
+    throw new Error('Secure random identifier generation is unavailable')
+  }
+  if (typeof webCrypto.randomUUID === 'function') {
+    return webCrypto.randomUUID()
+  }
+  if (typeof webCrypto.getRandomValues !== 'function') {
+    throw new Error('Secure random identifier generation is unavailable')
+  }
+
+  const bytes = new Uint8Array(16)
+  webCrypto.getRandomValues(bytes)
+  bytes[6] = (bytes[6] & 0x0f) | 0x40
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20),
+  ].join('-')
+}
+
 /** Stable anonymous id for this browser/participant. Created once, never tied to a name. */
 export function getSessionId(): string {
   let id = localStorage.getItem(SESSION_KEY)
-  if (!id) {
-    const uuid =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`
-    id = `s-${uuid}`
+  if (!id || !SECURE_SESSION_ID_RE.test(id)) {
+    id = `s-${secureSessionUuid()}`
     localStorage.setItem(SESSION_KEY, id)
   }
   return id

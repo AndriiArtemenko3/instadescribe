@@ -35,7 +35,7 @@ demo: install-web  ## Zero-key demo: build the committed-fixture web app and ser
 dev: install-web  ## Run the web app in dev mode against a local backend (start `make server` in another shell)
 	cd App && npm run dev
 
-server:  ## Run the Flask API + single-origin server on :8765
+server:  ## Run the legacy Flask API locally on loopback :8765
 	python modular_pipeline/server.py
 
 install: install-web install-py  ## Install both the web and Python dependencies

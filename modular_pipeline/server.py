@@ -14,7 +14,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -23,7 +22,7 @@ import uuid
 
 import export_service
 import storage
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS
 from logging_config import configure_logging
 from providers import (
@@ -35,7 +34,22 @@ from providers import (
 
 logger = logging.getLogger(__name__)
 
-JOB_ID_RE = re.compile(r"[A-Za-z0-9_-]+")
+MAX_BATCH_JOB_IDS = 100
+MAX_BATCH_IDS_QUERY_LENGTH = MAX_BATCH_JOB_IDS * (storage.MAX_STORAGE_ID_LENGTH + 1)
+STUDY_SESSION_PREFIX = "s-"
+LEGACY_BIND_HOST = "127.0.0.1"
+
+
+def _is_valid_study_session_id(value: object) -> bool:
+    if not isinstance(value, str) or not value.startswith(STUDY_SESSION_PREFIX):
+        return False
+    uuid_text = value.removeprefix(STUDY_SESSION_PREFIX)
+    try:
+        parsed = uuid.UUID(uuid_text)
+    except (AttributeError, ValueError):
+        return False
+    return parsed.version == 4 and parsed.variant == uuid.RFC_4122 and str(parsed) == uuid_text
+
 
 app = Flask(__name__)
 # CORS origins are configurable for deployment. Set STUDY_CORS_ORIGINS to the
@@ -48,6 +62,12 @@ CORS(
     app, origins="*" if _cors_env == "*" else [o.strip() for o in _cors_env.split(",") if o.strip()]
 )
 app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024 * 1024  # 4 GB
+
+
+@app.errorhandler(storage.InvalidStoragePath)
+def invalid_storage_path(_error):
+    """Keep storage-boundary rejection fail-closed at every legacy route."""
+    return jsonify({"error": "invalid id"}), 400
 
 
 # ─── POST /api/jobs ───────────────────────────────────────────────────────────
@@ -70,7 +90,7 @@ def create_job():
     jdir = storage.job_dir(job_id)
     jdir.mkdir(parents=True, exist_ok=True)
 
-    video_path = jdir / "video.mp4"
+    video_path = storage.job_video_file(job_id)
     video_file.save(str(video_path))
 
     cfg = frontend_settings.get("settings", {})
@@ -90,7 +110,7 @@ def create_job():
         "duration_secs": frontend_settings.get("durationSecs", 0),
     }
 
-    settings_path = jdir / "settings.json"
+    settings_path = storage.settings_file(job_id)
     settings_path.write_text(json.dumps(settings, indent=2))
 
     storage.status_file(job_id).write_text(
@@ -115,7 +135,7 @@ def create_job():
         cwd=str(storage.SERVER_DIR),
         env=job_env,
         stdout=subprocess.DEVNULL,
-        stderr=open(str(jdir / "stderr.log"), "w"),
+        stderr=open(str(storage.stderr_file(job_id)), "w"),
     )
 
     return jsonify({"jobId": job_id, "projectId": job_id}), 202
@@ -126,25 +146,28 @@ def create_job():
 
 @app.get("/api/jobs/<job_id>")
 def get_job(job_id: str):
+    if not storage.is_valid_storage_id(job_id):
+        return jsonify({"error": "invalid id"}), 400
     data = storage.read_status(job_id)
+    status = data.get("status", "unknown")
     response = {
-        "status": data.get("status", "unknown"),
+        "status": status,
         "progress": data.get("progress", 0),
         "stage": data.get("stage", ""),
         "chunks_done": data.get("chunks_done", 0),
         "chunks_total": data.get("chunks_total", 0),
-        "error": data.get("error"),
+        "error": "job processing failed" if status == "failed" else None,
     }
 
     if data.get("status") == "ready":
-        result_path = storage.job_dir(job_id) / "result.json"
+        result_path = storage.result_file(job_id)
         if result_path.exists():
             try:
                 result = json.loads(result_path.read_text())
                 response.update(
                     {
                         "data_path": result.get("data_path", f"/data/{job_id}"),
-                        "video_file": result.get("video_file") or storage.video_url_for(job_id),
+                        "video_file": storage.video_url_for(job_id),
                         "poster_file": result.get("poster_file"),
                         "poster_avif_file": result.get("poster_avif_file"),
                         "poster_placeholder": result.get("poster_placeholder"),
@@ -164,10 +187,11 @@ def get_job(job_id: str):
 
 def _job_summary(jid: str) -> dict:
     """Status summary for one job ID, merging settings + status + result + meta."""
+    storage.validate_storage_id(jid, field="job id")
     data = storage.read_status(jid)
     entry: dict = {"status": data.get("status", "unknown"), "progress": data.get("progress", 0)}
 
-    settings_path = storage.job_dir(jid) / "settings.json"
+    settings_path = storage.settings_file(jid)
     if settings_path.exists():
         try:
             s = json.loads(settings_path.read_text())
@@ -179,14 +203,14 @@ def _job_summary(jid: str) -> dict:
             pass
 
     if data.get("status") == "ready":
-        result_path = storage.job_dir(jid) / "result.json"
+        result_path = storage.result_file(jid)
         if result_path.exists():
             try:
                 r = json.loads(result_path.read_text())
                 entry.update(
                     {
                         "data_path": r.get("data_path", f"/data/{jid}"),
-                        "video_file": r.get("video_file") or storage.video_url_for(jid),
+                        "video_file": storage.video_url_for(jid),
                         "poster_file": r.get("poster_file"),
                         "poster_avif_file": r.get("poster_avif_file"),
                         "poster_placeholder": r.get("poster_placeholder"),
@@ -199,7 +223,7 @@ def _job_summary(jid: str) -> dict:
                 entry["video_file"] = storage.video_url_for(jid)
 
     if data.get("status") == "failed":
-        entry["error"] = data.get("error")
+        entry["error"] = "job processing failed"
 
     meta = storage.read_meta(jid)
     if "name" in meta:
@@ -215,18 +239,29 @@ def list_or_batch_jobs():
     """?ids=id1,id2 → status per requested ID (batch sync). No args → all jobs."""
     ids_arg = request.args.get("ids")
     if ids_arg is not None:
+        if len(ids_arg) > MAX_BATCH_IDS_QUERY_LENGTH:
+            return jsonify({"error": "too many or oversized ids"}), 400
+        job_ids = [jid.strip() for jid in ids_arg.split(",") if jid.strip()]
+        if len(job_ids) > MAX_BATCH_JOB_IDS:
+            return jsonify({"error": "too many ids"}), 400
+        if any(not storage.is_valid_storage_id(jid) for jid in job_ids):
+            return jsonify({"error": "invalid id"}), 400
         result = {}
-        for jid in ids_arg.split(","):
-            jid = jid.strip()
-            if jid:
-                result[jid] = _job_summary(jid)
+        for jid in job_ids:
+            result[jid] = _job_summary(jid)
         return jsonify(result)
 
     if not storage.JOBS_DIR.exists():
         return jsonify({})
     result = {}
     for jdir in sorted(storage.JOBS_DIR.iterdir()):
-        if jdir.is_dir():
+        if not storage.is_valid_storage_id(jdir.name):
+            continue
+        try:
+            safe_job_dir = storage.job_dir(jdir.name)
+        except storage.InvalidStoragePath:
+            continue
+        if safe_job_dir.is_dir():
             result[jdir.name] = _job_summary(jdir.name)
     return jsonify(result)
 
@@ -236,7 +271,7 @@ def list_or_batch_jobs():
 
 @app.delete("/api/jobs/<job_id>")
 def delete_job(job_id: str):
-    if not JOB_ID_RE.fullmatch(job_id):
+    if not storage.is_valid_storage_id(job_id):
         return jsonify({"error": "invalid id"}), 400
     jdir = storage.job_dir(job_id)
     if not jdir.exists():
@@ -250,7 +285,7 @@ def delete_job(job_id: str):
 
 @app.patch("/api/jobs/<job_id>")
 def patch_job(job_id: str):
-    if not JOB_ID_RE.fullmatch(job_id):
+    if not storage.is_valid_storage_id(job_id):
         return jsonify({"error": "invalid id"}), 400
     if not storage.job_dir(job_id).exists():
         return jsonify({"error": "not found"}), 404
@@ -274,7 +309,7 @@ SMARTFILL_WPS = 2.3
 @app.post("/api/jobs/<job_id>/smart-fill")
 def smart_fill(job_id: str):
     """Rewrite an AD line to fit inside the available silence gap (single OpenAI call)."""
-    if not JOB_ID_RE.fullmatch(job_id):
+    if not storage.is_valid_storage_id(job_id):
         return jsonify({"error": "invalid id"}), 400
     if not storage.job_dir(job_id).exists():
         return jsonify({"error": "not found"}), 404
@@ -319,9 +354,12 @@ def smart_fill(job_id: str):
             new_text = new_text[1:-1].strip()
         tokens = result.tokens
         model_used = result.model
-    except Exception as exc:
-        logger.exception("smart-fill failed")
-        return jsonify({"error": f"smart-fill failed: {exc}"}), 500
+    except Exception:
+        logger.exception(
+            "smart-fill failed",
+            extra={"job_id": job_id, "operation": "smart_fill"},
+        )
+        return jsonify({"error": "smart-fill failed"}), 500
 
     return jsonify(
         {
@@ -340,7 +378,7 @@ def smart_fill(job_id: str):
 
 @app.post("/api/jobs/<job_id>/tts-preview")
 def tts_preview(job_id: str):
-    if not JOB_ID_RE.fullmatch(job_id):
+    if not storage.is_valid_storage_id(job_id):
         return jsonify({"error": "invalid id"}), 400
     if not storage.job_dir(job_id).exists():
         return jsonify({"error": "not found"}), 404
@@ -366,9 +404,12 @@ def tts_preview(job_id: str):
     if not base_path.exists():
         try:
             render_line(text, voice, base_path)
-        except Exception as exc:
-            logger.exception("tts render failed")
-            return jsonify({"error": f"tts render failed: {exc}"}), 500
+        except Exception:
+            logger.exception(
+                "tts render failed",
+                extra={"job_id": job_id, "operation": "tts_render"},
+            )
+            return jsonify({"error": "tts render failed"}), 500
 
     if abs(speed - 1.0) < 0.01:
         out_path = base_path
@@ -378,9 +419,12 @@ def tts_preview(job_id: str):
         if not out_path.exists():
             try:
                 adjust_speed(base_path, out_path, speed)
-            except Exception as exc:
-                logger.exception("speed adjust failed")
-                return jsonify({"error": f"speed adjust failed: {exc}"}), 500
+            except Exception:
+                logger.exception(
+                    "speed adjust failed",
+                    extra={"job_id": job_id, "operation": "tts_speed_adjust"},
+                )
+                return jsonify({"error": "speed adjust failed"}), 500
 
     return send_file(out_path, mimetype="audio/mpeg", conditional=True)
 
@@ -390,7 +434,7 @@ def tts_preview(job_id: str):
 
 @app.patch("/api/jobs/<job_id>/scenes/<scene_id>")
 def patch_scene(job_id: str, scene_id: str):
-    if not JOB_ID_RE.fullmatch(job_id) or not JOB_ID_RE.fullmatch(scene_id):
+    if not storage.is_valid_storage_id(job_id) or not storage.is_valid_storage_id(scene_id):
         return jsonify({"error": "invalid id"}), 400
     if not storage.job_dir(job_id).exists():
         return jsonify({"error": "not found"}), 404
@@ -429,7 +473,7 @@ def patch_scene(job_id: str, scene_id: str):
 
 @app.patch("/api/jobs/<job_id>/entities/<char_id>")
 def patch_entity(job_id: str, char_id: str):
-    if not JOB_ID_RE.fullmatch(job_id) or not JOB_ID_RE.fullmatch(char_id):
+    if not storage.is_valid_storage_id(job_id) or not storage.is_valid_storage_id(char_id):
         return jsonify({"error": "invalid id"}), 400
     if not storage.job_dir(job_id).exists():
         return jsonify({"error": "not found"}), 404
@@ -441,9 +485,8 @@ def patch_entity(job_id: str, char_id: str):
     if len(new_name) > 200:
         return jsonify({"error": "name too long"}), 400
 
-    data_dir = storage.DATA_DIR / job_id
-    entities_path = data_dir / "entities.json"
-    scenes_path = data_dir / "scenes.json"
+    entities_path = storage.entities_file(job_id)
+    scenes_path = storage.scenes_file(job_id)
     if not entities_path.exists() or not scenes_path.exists():
         return jsonify({"error": "job data not found"}), 404
 
@@ -465,9 +508,12 @@ def patch_entity(job_id: str, char_id: str):
 
         entities_path.write_text(json.dumps(updated_entities, indent=2, ensure_ascii=False))
         scenes_path.write_text(json.dumps(updated_scenes, indent=2, ensure_ascii=False))
-    except Exception as exc:
-        logger.exception("rename failed")
-        return jsonify({"error": f"rename failed: {exc}"}), 500
+    except Exception:
+        logger.exception(
+            "rename failed",
+            extra={"job_id": job_id, "operation": "entity_rename"},
+        )
+        return jsonify({"error": "rename failed"}), 500
 
     return jsonify({"characterId": char_id, "name": new_name})
 
@@ -477,11 +523,11 @@ def patch_entity(job_id: str, char_id: str):
 
 @app.post("/api/jobs/<job_id>/export")
 def start_export(job_id: str):
-    if not JOB_ID_RE.fullmatch(job_id):
+    if not storage.is_valid_storage_id(job_id):
         return jsonify({"error": "invalid id"}), 400
     if not storage.job_dir(job_id).exists():
         return jsonify({"error": "not found"}), 404
-    if not (storage.DATA_DIR / job_id / "scenes.json").exists():
+    if not storage.scenes_file(job_id).exists():
         return jsonify({"error": "job not ready (scenes.json missing)"}), 409
 
     body = request.get_json(silent=True) or {}
@@ -517,20 +563,23 @@ def start_export(job_id: str):
 
 @app.get("/api/jobs/<job_id>/export/<export_id>")
 def get_export(job_id: str, export_id: str):
-    if not JOB_ID_RE.fullmatch(job_id) or not JOB_ID_RE.fullmatch(export_id):
+    if not storage.is_valid_storage_id(job_id) or not storage.is_valid_storage_id(export_id):
         return jsonify({"error": "invalid id"}), 400
     status_path = storage.export_dir(job_id, export_id) / "status.json"
     if not status_path.exists():
         return jsonify({"error": "not found"}), 404
     try:
-        return jsonify(json.loads(status_path.read_text()))
+        payload = json.loads(status_path.read_text())
+        if payload.get("status") == "failed":
+            payload["error"] = "export failed"
+        return jsonify(payload)
     except Exception:
         return jsonify({"error": "corrupt status"}), 500
 
 
 @app.get("/api/jobs/<job_id>/export/<export_id>/download")
 def download_export(job_id: str, export_id: str):
-    if not JOB_ID_RE.fullmatch(job_id) or not JOB_ID_RE.fullmatch(export_id):
+    if not storage.is_valid_storage_id(job_id) or not storage.is_valid_storage_id(export_id):
         return jsonify({"error": "invalid id"}), 400
     edir = storage.export_dir(job_id, export_id)
     status_path = edir / "status.json"
@@ -561,7 +610,7 @@ def download_export(job_id: str, export_id: str):
 @app.get("/api/jobs/<job_id>/overrides")
 def get_overrides(job_id: str):
     """Server-stored per-scene edits, applied on top of scenes.json by the editor."""
-    if not JOB_ID_RE.fullmatch(job_id):
+    if not storage.is_valid_storage_id(job_id):
         return jsonify({"error": "invalid id"}), 400
     if not storage.job_dir(job_id).exists():
         return jsonify({"error": "not found"}), 404
@@ -575,10 +624,9 @@ def get_overrides(job_id: str):
 def get_evaluation(job_id: str):
     """Score the job's current (override-merged) descriptions against the AD-quality
     rubric. Pure CPU — no model call — so it is cheap to poll as the author edits."""
-    if not JOB_ID_RE.fullmatch(job_id):
+    if not storage.is_valid_storage_id(job_id):
         return jsonify({"error": "invalid id"}), 400
-    data_dir = storage.DATA_DIR / job_id
-    if not (data_dir / "scenes.json").exists():
+    if not storage.scenes_file(job_id).exists():
         return jsonify({"error": "job data not found"}), 404
 
     sys.path.insert(0, str(storage.SERVER_DIR))
@@ -586,16 +634,16 @@ def get_evaluation(job_id: str):
 
     merged = export_service.merged_scenes(job_id)
     try:
-        audio_events = json.loads((data_dir / "audio_events.json").read_text())
+        audio_events = json.loads(storage.audio_events_file(job_id).read_text())
     except Exception:
         audio_events = []
     try:
-        entities = json.loads((data_dir / "entities.json").read_text())
+        entities = json.loads(storage.entities_file(job_id).read_text())
     except Exception:
         entities = []
 
     duration = max((float(s.get("end", 0.0)) for s in merged), default=0.0)
-    settings_path = storage.job_dir(job_id) / "settings.json"
+    settings_path = storage.settings_file(job_id)
     if settings_path.exists():
         try:
             ds = json.loads(settings_path.read_text()).get("duration_secs")
@@ -613,7 +661,9 @@ def get_evaluation(job_id: str):
 # its own copy of the clip's data, keyed by the anonymous session UUID, so a rename
 # or edit never mutates the shared canonical draft or another participant's session.
 
-STUDY_SOURCE_JOB = os.environ.get("STUDY_SOURCE_JOB", "sintel-blender-cc")
+STUDY_SOURCE_JOB = storage.validate_storage_id(
+    os.environ.get("STUDY_SOURCE_JOB", "sintel-blender-cc"), field="study source job"
+)
 # Override with a mounted volume path in deploy to persist logs across restarts.
 STUDY_LOGS_DIR = storage.SERVER_DIR / "study_logs"
 if os.environ.get("STUDY_LOGS_DIR"):
@@ -622,16 +672,16 @@ if os.environ.get("STUDY_LOGS_DIR"):
     STUDY_LOGS_DIR = Path(os.environ["STUDY_LOGS_DIR"])
 
 
-def _scene_count(data_dir) -> int:
+def _scene_count(job_id: str) -> int:
     try:
-        raw = json.loads((data_dir / "scenes.json").read_text())
+        raw = json.loads(storage.scenes_file(job_id).read_text())
         return sum(1 for s in raw if float(s.get("end", 0)) > float(s.get("start", 0)))
     except Exception:
         return 0
 
 
 def _study_video_duration() -> int:
-    src = storage.VIDEOS_DIR / f"{STUDY_SOURCE_JOB}.mp4"
+    src = storage.public_video_file(STUDY_SOURCE_JOB)
     try:
         out = subprocess.run(
             [
@@ -658,31 +708,31 @@ def provision_study_session():
     """Create an isolated copy of the frozen study clip for one participant.
     Idempotent: a returning session reuses its existing copy."""
     body = request.get_json(silent=True) or {}
-    session_id = (body.get("sessionId") or "").strip()
-    if not session_id or not JOB_ID_RE.fullmatch(session_id):
+    session_id = body.get("sessionId")
+    if not _is_valid_study_session_id(session_id):
         return jsonify({"error": "valid sessionId required"}), 400
 
-    src_data = storage.DATA_DIR / STUDY_SOURCE_JOB
-    if not (src_data / "scenes.json").exists():
+    src_data = storage.data_dir(STUDY_SOURCE_JOB)
+    if not storage.scenes_file(STUDY_SOURCE_JOB).exists():
         return jsonify({"error": "study source clip not found on server"}), 500
 
-    dst_data = storage.DATA_DIR / session_id
+    dst_data = storage.data_dir(session_id)
     if not dst_data.exists():
         shutil.copytree(src_data, dst_data)
 
     jdir = storage.job_dir(session_id)
     jdir.mkdir(parents=True, exist_ok=True)
-    (jdir / "result.json").write_text(
+    storage.result_file(session_id).write_text(
         json.dumps(
             {
                 "data_path": f"/data/{session_id}",
                 "video_file": f"/videos/{STUDY_SOURCE_JOB}.mp4",
-                "scene_count": _scene_count(dst_data),
+                "scene_count": _scene_count(session_id),
             },
             indent=2,
         )
     )
-    (jdir / "status.json").write_text(
+    storage.status_file(session_id).write_text(
         json.dumps(
             {
                 "status": "ready",
@@ -699,7 +749,7 @@ def provision_study_session():
     # returning participant's activations are preserved.
     if not storage.overrides_path(session_id).exists():
         try:
-            seed_scenes = json.loads((dst_data / "scenes.json").read_text())
+            seed_scenes = json.loads(storage.scenes_file(session_id).read_text())
             seed = {
                 s["scene_id"]: {"active": False}
                 for s in seed_scenes
@@ -716,7 +766,7 @@ def provision_study_session():
             "dataPath": f"/data/{session_id}",
             "videoFile": f"/videos/{STUDY_SOURCE_JOB}.mp4",
             "durationSecs": _study_video_duration(),
-            "sceneCount": _scene_count(dst_data),
+            "sceneCount": _scene_count(session_id),
             "status": "ready",
         }
     )
@@ -726,8 +776,8 @@ def provision_study_session():
 def study_log():
     """Append one anonymised interaction event, keyed by session UUID. No PII."""
     body = request.get_json(silent=True) or {}
-    session_id = (body.get("sessionId") or "").strip()
-    if not session_id or not JOB_ID_RE.fullmatch(session_id):
+    session_id = body.get("sessionId")
+    if not _is_valid_study_session_id(session_id):
         return jsonify({"error": "valid sessionId required"}), 400
     event = str(body.get("event") or "")[:80]
     try:
@@ -743,7 +793,7 @@ def study_log():
             "ts": body.get("ts"),
         }
     )
-    with open(STUDY_LOGS_DIR / f"{session_id}.jsonl", "a") as f:
+    with storage.study_log_file(STUDY_LOGS_DIR, session_id).open("a") as f:
         f.write(record + "\n")
     return ("", 204)
 
@@ -786,18 +836,31 @@ def set_providers():
 
 @app.get("/data/<path:subpath>")
 def serve_data(subpath: str):
-    return send_from_directory(storage.DATA_DIR, subpath)
+    try:
+        path = storage.public_data_path(subpath)
+    except storage.InvalidStoragePath:
+        return jsonify({"error": "not found"}), 404
+    if not path.is_file():
+        return jsonify({"error": "not found"}), 404
+    return send_file(path, conditional=True)
 
 
 @app.get("/videos/<path:subpath>")
 def serve_videos(subpath: str):
-    return send_from_directory(storage.VIDEOS_DIR, subpath)
+    try:
+        path = storage.public_video_path(subpath)
+    except storage.InvalidStoragePath:
+        return jsonify({"error": "not found"}), 404
+    if not path.is_file():
+        return jsonify({"error": "not found"}), 404
+    return send_file(path, conditional=True)
 
 
 @app.get("/")
 def serve_index():
-    if (storage.DIST_DIR / "index.html").exists():
-        return send_from_directory(storage.DIST_DIR, "index.html")
+    index_path = storage.static_asset_path("index.html")
+    if index_path.exists():
+        return send_file(index_path, conditional=True)
     return jsonify({"status": "InstaDescribe backend running (no SPA build present)"})
 
 
@@ -806,19 +869,30 @@ def serve_spa(path: str):
     """Serve built assets, else fall back to index.html for client-side routes."""
     if path.startswith("api/"):
         return jsonify({"error": "not found"}), 404
-    if (storage.DIST_DIR / path).is_file():
-        return send_from_directory(storage.DIST_DIR, path)
-    if (storage.DIST_DIR / "index.html").exists():
-        return send_from_directory(storage.DIST_DIR, "index.html")
+    try:
+        asset_path = storage.static_asset_path(path)
+    except storage.InvalidStoragePath:
+        return jsonify({"error": "not found"}), 404
+    if asset_path.is_file():
+        return send_file(asset_path, conditional=True)
+    index_path = storage.static_asset_path("index.html")
+    if index_path.exists():
+        return send_file(index_path, conditional=True)
     return jsonify({"error": "not found"}), 404
 
 
 # ─── Run ──────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+
+def run_local_server() -> None:
+    """Run the unauthenticated legacy surface on loopback only."""
     configure_logging()
     storage.JOBS_DIR.mkdir(parents=True, exist_ok=True)
     port = int(os.environ.get("PORT", "8765"))
-    logger.info("InstaDescribe backend server starting on http://0.0.0.0:%s", port)
+    logger.info("InstaDescribe legacy backend starting on http://%s:%s", LEGACY_BIND_HOST, port)
     logger.info("Jobs directory: %s", storage.JOBS_DIR)
-    app.run(host="0.0.0.0", port=port, threaded=True, debug=False)
+    app.run(host=LEGACY_BIND_HOST, port=port, threaded=True, debug=False)
+
+
+if __name__ == "__main__":
+    run_local_server()
