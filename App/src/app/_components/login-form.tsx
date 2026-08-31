@@ -14,7 +14,7 @@ function challengePath(type: string | undefined, returnTo: string): string | nul
   return null
 }
 
-export function LoginForm({ returnTo = '/projects' }: { returnTo?: string }) {
+export function LoginForm({ returnTo = '/investigations' }: { returnTo?: string }) {
   const destination = safeReturnTo(returnTo)
   const [message, setMessage] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)

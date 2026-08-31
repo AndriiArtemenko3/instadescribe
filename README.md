@@ -13,9 +13,11 @@ challenge and finalize.
 > `geolocateProvenance` investigation contract and a deterministic, no-model
 > end-to-end fixture. The fixture crosses the Browser API, versioned upload,
 > dedicated queue, fenced worker, isolated child process, persistence and analyst
-> report boundary. It does not call a vision model or the public web. An
-> investigation workspace, live multimodal inference, connected retrieval,
-> persisted replay and public quality metrics are separate, gated milestones.
+> report boundary. The authenticated Next.js workspace now exposes that boundary
+> through list, create, evidence review and report routes, with a synthetic browser
+> fixture visibly marked as no-model inference. Neither fixture calls a vision
+> model or the public web. Live multimodal inference, connected retrieval,
+> persisted replay and public quality metrics remain separate, gated milestones.
 
 [Investigation architecture](./docs/investigation-architecture.md) ·
 [Current platform architecture](./docs/architecture.md) ·
@@ -37,7 +39,7 @@ domain, not a relabeling of the retained `audio_description` pipeline.
 | Browser investigation API | Implemented | Create/list/get/cancel, upload completion, evidence/keyframe/step/belief reads, analyst finalization and report retrieval for `geolocateProvenance + local` |
 | Isolated execution path | Implemented | A dedicated investigation queue, worker leases and fencing, cancellation/reclaim behavior, a workspace-root-scoped host-local file lease and a bounded `python -I` child result boundary |
 | Supportive and abstaining journeys | Implemented as deterministic fixtures | Both paths cross FastAPI, direct versioned storage, SQS-compatible transport, the real worker and durable report state without model or public-web calls |
-| Analyst investigation workspace | Not implemented in the current `main` tree | The Browser API exists; the current Next.js product UI remains the audio-description workspace |
+| Analyst investigation workspace | Implemented and fixture-verified in source | Authenticated list/create/workspace/report routes; direct upload orchestration; role-aware controls; source lineage, keyframe metadata, evidence state, uncalibrated posterior, entropy, abstention and objective tool ledger |
 | Live local multimodal inference | Gated next | Loopback adapter code is not an accepted end-to-end capability; the worker fails closed until a parent-validated proposal handshake and runtime/resource gates are complete |
 | Connected retrieval and geometric verification | Not implemented | No crop leaves the local boundary and no connected result can be presented as verified evidence |
 | Persisted replay | Not implemented | A committed deterministic fixture is test infrastructure, not persisted trace replay |
@@ -47,7 +49,9 @@ domain, not a relabeling of the retained `audio_description` pipeline.
 
 ```mermaid
 flowchart LR
-    CLIENT["Authorized Browser API client"] --> API["FastAPI\ntenant authority"]
+    ANALYST["Owner / editor / reviewer / viewer"] --> WEB["Next.js investigation workspace"]
+    WEB --> BFF["Exact same-origin JSON BFF"]
+    BFF --> API["FastAPI\ntenant authority"]
     API --> PG["PostgreSQL\ninvestigation records"]
     API --> S3["Versioned object storage\nsource asset"]
     API --> Q["Dedicated investigation queue"]
@@ -58,12 +62,19 @@ flowchart LR
     WORKER --> PG
     PG --> API
     API --> REPORT["Analyst decision\nand lineage report"]
+    REPORT --> WEB
 ```
 
 The creation contract is deliberately narrow: `geolocateProvenance` with `local`
 connectivity. Unsupported investigation kinds or connectivity policies return
 `422 investigation_mode_unavailable` instead of entering a partial pipeline. The
 stable Integration API, SDK and CLI do not expose investigation jobs or commands.
+
+The BFF accepts only the ten implemented investigation method/path pairs. It
+rejects wrong methods, malformed identifiers, arbitrary nested resources and
+egress paths before contacting FastAPI. Browser responses are parsed as exact,
+bounded shapes; unknown fields and internally inconsistent belief or decision
+states fail closed.
 
 Here, `local` means that the investigation authorizes no public-internet retrieval.
 PostgreSQL, S3-compatible storage and SQS-compatible transport remain explicit
@@ -133,6 +144,28 @@ reviewable journey is in
 [services/worker/tests/test_investigation_e2e_acceptance.py](./services/worker/tests/test_investigation_e2e_acceptance.py).
 It is test evidence, not a model-quality demo or a deployment claim.
 
+The analyst workspace has a separate synthetic Playwright journey on desktop and
+mobile Chromium:
+
+```bash
+npm ci
+npm run build:next -w App
+npm run test:e2e -w App
+```
+
+It exercises bounded deep links, list/create, direct upload, all four human roles,
+keyframe metadata, evidence-state presentation, abstention/finalization, report and
+the retained legacy route. The representative upload is intercepted and unexpected
+external requests are blocked.
+
+![Deterministic no-model investigation workspace showing metadata-only keyframes, evidence states, an uncalibrated posterior and abstention](./docs/assets/investigation-workspace.png)
+
+This capture is generated from reserved identifiers and synthetic observations. It
+contains no account or customer data, no source pixels and no model output. The one
+synthetic `verified` metadata item exists to exercise the UI's proposed/verified
+contract distinction; the worker acceptance fixtures continue to persist their
+generated observations as `proposed`.
+
 ## Repository map
 
 ```text
@@ -140,7 +173,7 @@ packages/investigation-core/ Apache-2.0 evidence, belief, trace, IPC and eval ba
 services/api/                FastAPI tenancy, Browser and stable Integration APIs
 services/worker/             Fenced AD workers and dedicated investigation worker
 migrations/                  PostgreSQL schema, including the investigation domain
-App/                         Next.js product shell and retained AD editor/rollback build
+App/                         Next.js investigation workspace and retained AD editor/rollback build
 packages/sdk/                MIT TypeScript client for the stable Integration API
 packages/cli/                MIT CLI for the stable Integration API
 packages/contracts/          Shared BUSL queue and provider contracts
@@ -163,6 +196,11 @@ Useful starting points for a code review:
   [`services/worker/instadescribe_worker/investigation_executor.py`](./services/worker/instadescribe_worker/investigation_executor.py);
 - supportive and abstention acceptance:
   [`services/worker/tests/test_investigation_e2e_acceptance.py`](./services/worker/tests/test_investigation_e2e_acceptance.py).
+- authenticated workspace and strict browser parser:
+  [`App/src/app/(product)/investigations/`](./App/src/app/%28product%29/investigations/) and
+  [`App/src/lib/investigations.ts`](./App/src/lib/investigations.ts);
+- desktop/mobile no-model browser journey:
+  [`App/e2e/investigation-workspace.spec.ts`](./App/e2e/investigation-workspace.spec.ts).
 
 ## Mixed-license boundary
 
@@ -185,9 +223,11 @@ preserved, including organization/RBAC foundations, direct media transfer,
 asynchronous jobs, worker fencing, FFmpeg/ASR/TTS, scene review, atomic deliverables,
 the stable Integration API and the MIT SDK/CLI.
 
-The existing Next.js/Vite editor and deterministic Sintel demo still exercise the
-audio-description workflow; they are not an investigation UI or evidence that a
-video-investigation model ran. See
+The Next.js investigation routes are now the primary product workspace. The
+audio-description project view remains reachable at `/legacy/audio-description`,
+while the Vite editor and deterministic Sintel demo remain rollback/history
+surfaces. None of those legacy surfaces is evidence that a video-investigation
+model ran. See
 [Architecture evolution](./docs/architecture-evolution.md) and
 [Engineering history](./docs/engineering-history.md) for the migration story.
 

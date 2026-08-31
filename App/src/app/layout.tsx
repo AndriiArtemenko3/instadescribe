@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     default: 'InstaDescribe',
     template: '%s · InstaDescribe',
   },
-  description: 'Review and publish accessible audio descriptions.',
+  description: 'Local-first, evidence-backed video investigation and provenance.',
 }
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

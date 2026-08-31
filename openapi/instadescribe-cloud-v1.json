@@ -1063,18 +1063,6 @@
       "EvidenceObservation": {
         "additionalProperties": false,
         "properties": {
-          "details": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Details"
-          },
           "summary": {
             "maxLength": 1000,
             "minLength": 1,

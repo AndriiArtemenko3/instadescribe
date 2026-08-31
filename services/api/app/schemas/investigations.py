@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 from urllib.parse import urlsplit
 
 from instadescribe_contracts.provider import (
@@ -268,7 +268,6 @@ class EvidenceObservation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     summary: StrictStr = Field(min_length=1, max_length=1000)
-    details: dict[str, Any] | None = None
 
 
 class EvidenceItemResponse(BaseModel):

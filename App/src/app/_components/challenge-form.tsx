@@ -19,7 +19,7 @@ function nextChallenge(response: Response, challenge: Challenge | undefined, ret
 
 export function ChallengeForm({
   expected,
-  returnTo = '/projects',
+  returnTo = '/investigations',
 }: {
   expected: 'new_password_required' | 'mfa'
   returnTo?: string

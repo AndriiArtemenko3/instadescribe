@@ -36,8 +36,10 @@ Keep documentation precise:
 
 - the video-investigation foundation is implemented and fixture-verified, with no
   model inference or public-web request in its end-to-end proof;
-- the investigation workspace, live model, retrieval, persisted replay, benchmark
-  and deployment are not implemented capabilities;
+- the authenticated investigation workspace is implemented and browser-verified
+  with a synthetic, PII-free no-model fixture;
+- live model inference, retrieval, persisted replay, benchmark and deployment are
+  not implemented capabilities;
 - the audio-description API-first beta remains implemented and locally verified,
   not evidence that the investigation product is deployed;
 - the SDK and CLI are source-complete but not yet published to npm;

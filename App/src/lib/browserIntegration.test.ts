@@ -12,6 +12,7 @@ import {
 
 const JOB_ID = '11111111-1111-4111-8111-111111111111'
 const PROJECT_ID = '22222222-2222-4222-8222-222222222222'
+const COMPLETE_KEY = '33333333-3333-4333-8333-333333333333'
 const CSRF = 'c'.repeat(43)
 
 function json(value: unknown, status = 200): Response {
@@ -93,10 +94,13 @@ describe('browser integration transfers', () => {
 
   it('keeps the reserved job ID when upload confirmation fails', async () => {
     Object.defineProperty(document, 'cookie', { configurable: true, value: `__Host-instadescribe_csrf=${CSRF}` })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ code: 'capacity_conflict' }, 409)))
-    await expect(completeBrowserUpload(JOB_ID)).rejects.toMatchObject({
+    const fetchMock = vi.fn().mockResolvedValue(json({ code: 'capacity_conflict' }, 409))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(completeBrowserUpload(JOB_ID, COMPLETE_KEY)).rejects.toMatchObject({
       code: 'capacity_conflict',
       jobId: JOB_ID,
     })
+    expect(new Headers((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.headers).get('idempotency-key'))
+      .toBe(COMPLETE_KEY)
   })
 })

@@ -7,8 +7,9 @@ Legacy deployment references are dated release evidence; this comparison makes n
 claim about their current availability or support status.
 
 The repository has since added a parallel Observable Video Intelligence foundation.
-That milestone is implemented and fixture-verified in source; it is not a claim that
-an investigation workspace, live model pipeline or connected service is deployed.
+That milestone and its authenticated analyst workspace are implemented and
+fixture-verified in source; this is not a claim that a live model pipeline or
+connected service is deployed.
 
 ## Before: bounded browser workflow
 
@@ -89,27 +90,30 @@ AWS/Terraform identities are not mechanically renamed.
 For implementation details, see [Architecture](./architecture.md) and
 [ADR-0010](./adr/0010-api-first-b2b-beta.md).
 
-## Next domain: observable video investigation
+## Current parallel domain: observable video investigation
 
 The investigation work reuses the organization, storage, queue and worker-safety
 boundaries without renaming audio-description scenes into evidence.
 
 ```mermaid
 flowchart LR
-    CLIENT["Browser API client"] --> API["FastAPI"]
+    ANALYST["Analyst"] --> NEXT["Next.js workspace"]
+    NEXT --> BFF["Exact BFF allowlist"]
+    BFF --> API["FastAPI"]
     API --> DATA["Tenant-scoped source + evidence records"]
     API --> QUEUE["Dedicated investigation queue"]
     QUEUE --> WORKER["Fenced local worker"]
     WORKER --> IPC["Isolated strict-IPC fixture"]
     IPC --> BELIEF["Evidence + belief + abstention"]
     BELIEF --> REVIEW["Analyst decision + report"]
+    REVIEW --> NEXT
 ```
 
 | Concern | Audio-description workflow | Investigation foundation |
 |---|---|---|
 | Review unit | Scene and narration decision | Evidence item, belief snapshot and final analyst decision |
 | Output | Atomic accessible-media deliverables | Source/evidence/decision lineage report JSON |
-| Client surface | Browser plus stable Integration API, SDK and CLI | Browser API only; workspace pending |
+| Client surface | Browser plus stable Integration API, SDK and CLI | Authenticated Browser workspace and Browser API; stable Integration API/SDK/CLI intentionally unchanged |
 | Execution proof | Deterministic editor and pipeline fixtures | Supportive and abstention Browser-to-report fixtures, no model inference |
 | Network posture | Configurable AD providers | Investigation creation currently accepts only `local`; retrieval is absent |
 

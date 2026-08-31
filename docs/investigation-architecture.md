@@ -3,10 +3,11 @@
 > **Implemented boundary:** this document describes the investigation foundation
 > present in the default branch after the open-core and local-backend milestones.
 > Its executable end-to-end proof uses deterministic fixtures with no model
-> inference and no public-web request. The investigation workspace, live local
-> multimodal runtime, persisted replay, retrieval, geometric verification,
-> damage/change analysis and benchmark results are not implemented capabilities in
-> this revision.
+> inference and no public-web request. An authenticated Next.js analyst workspace
+> now presents this boundary through deterministic desktop/mobile browser coverage.
+> Live local multimodal runtime, persisted replay, retrieval, geometric
+> verification, damage/change analysis and benchmark results are not implemented
+> capabilities in this revision.
 
 InstaDescribe models video investigation as a workflow parallel to audio
 description. It reuses tenant identity, direct versioned media transfer, durable
@@ -17,7 +18,9 @@ uncertainty and analyst-decision records.
 
 ```mermaid
 flowchart LR
-    CLIENT["Authorized Browser API client"] --> API["FastAPI Browser API"]
+    ANALYST["Owner / editor / reviewer / viewer"] --> NEXT["Next.js workspace"]
+    NEXT --> BFF["Exact JSON BFF allowlist"]
+    BFF --> API["FastAPI Browser API"]
     API --> PG["PostgreSQL"]
     API --> S3["Versioned object storage"]
     API --> IQ["Investigation SQS queue"]
@@ -28,6 +31,7 @@ flowchart LR
     WORKER --> PG
     PG --> API
     API --> REPORT["Analyst decision + report JSON"]
+    REPORT --> NEXT
 ```
 
 FastAPI is the external authorization and control plane. PostgreSQL is the durable
@@ -37,9 +41,9 @@ current database fence. The isolated child proposes a bounded result, which the
 parent validates against parent-owned source, identity, policy, candidates, model
 provenance and belief configuration before persistence.
 
-There is no investigation page in the current Next.js application. The implemented
-product surface is the authenticated Browser API plus its deterministic acceptance
-test.
+The implemented product surface is the authenticated Browser API plus Next.js list,
+create, workspace and report routes. FastAPI remains the state and authorization
+authority; the workspace is a strict projection, not a second domain implementation.
 
 ## Workflow and lifecycle
 
@@ -110,7 +114,45 @@ non-cacheable.
 
 The keyframe endpoint currently returns evidence metadata—timecode, observation and
 optional bounding box. It does not expose a stored investigation-frame image or an
-investigation workspace.
+image-serving contract.
+
+## Analyst workspace and BFF boundary
+
+The Next.js App Router now exposes:
+
+| Route | Implemented responsibility |
+|---|---|
+| `/investigations` | Tenant list, status/abstention summary and role-aware create affordance |
+| `/investigations/new` | Rights/retention metadata, fixed local mode and direct source upload |
+| `/investigations/{uuid}` | Keyframe metadata, evidence state, uncalibrated belief/entropy, objective step ledger and analyst controls |
+| `/investigations/{uuid}/report` | Source lineage, evidence dispositions, final hypothesis or explicit abstention |
+| `/legacy/audio-description` | Retained audio-description project entry outside primary navigation |
+
+The same-origin BFF admits exactly ten investigation method/path pairs: `GET` and
+`POST` on the collection; `GET` detail, steps, keyframes, evidence, beliefs and
+report; and `POST` cancel and decision. Wrong methods, malformed identifiers,
+arbitrary nested paths and egress proposals return `404` before upstream access.
+The stable Integration API, SDK and CLI remain investigation-free.
+
+The browser client parses every investigation projection as an exact bounded shape.
+Unknown keys, invalid timestamps/UUIDs, invalid normalized boxes, non-finite values,
+non-normalized candidate probabilities and inconsistent abstention/final-hypothesis
+states fail closed. Role presentation mirrors the server contract: Owner/Editor may
+create or cancel; Owner/Reviewer may decide evidence and finalize; Viewer remains
+read-only. FastAPI independently enforces those permissions.
+
+The Browser evidence schema deliberately publishes a bounded observation summary
+without the worker's internal observation-detail map. The accompanying schema,
+service and generated OpenAPI hardening is part of this workspace boundary; it does
+not change the stable Integration API, SDK or CLI.
+
+The workspace deliberately labels the current surface as `Keyframe metadata` and
+states that no source pixels are returned. It distinguishes `Proposed observation`
+from `Verified by tool`, labels the posterior uncalibrated, exposes entropy and
+abstention, and presents recorded tool events rather than hidden model reasoning.
+Nonterminal workspaces poll on a bounded schedule. If the latest machine belief
+abstained, the analyst form disables candidate selection and requires finalization
+to preserve abstention; this is enforced again by FastAPI.
 
 ## Source and media boundary
 
@@ -213,11 +255,27 @@ for the executable specification and
 [`packages/investigation-core/README.md`](../packages/investigation-core/README.md)
 for the standalone offline baseline.
 
+A separate Playwright fixture exercises the user-facing projection on desktop and
+mobile Chromium. It covers bounded deep links, list/create, an intercepted direct
+upload, every human role, workspace/report rendering, explicit abstention and the
+legacy route. The fixture proves that the browser exposes no retrieval/egress path
+and blocks unexpected browser requests; it does not execute or certify worker
+network isolation. Authenticated BFF calls and direct private-storage upload remain
+explicit transport paths. The backend acceptance fixture separately exercises the
+local no-public-web worker path. Its observations, identifiers and account label are
+synthetic; `deterministic-fixture` is shown as `Deterministic fixture · no model
+inference`.
+
+The browser fixture includes one synthetic `verified` metadata record only to test
+the UI's state distinction. It is not output from the worker acceptance fixture,
+whose generated evidence remains `proposed`, and it is not a verification-quality
+claim. See
+[`App/e2e/investigation-workspace.spec.ts`](../App/e2e/investigation-workspace.spec.ts).
+
 ## Current non-capabilities
 
-This foundation does not claim:
+This workspace-backed foundation does not claim:
 
-- an analyst-facing investigation workspace or report page;
 - a validated live Qwen, OCR or investigation-ASR pipeline;
 - source-frame image serving in the Browser contract;
 - persisted deterministic replay;

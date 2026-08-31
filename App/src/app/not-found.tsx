@@ -8,10 +8,10 @@ export default function NotFound() {
         <h1 className="mt-3 text-2xl font-semibold text-neutral-900">That page does not exist.</h1>
         <p className="mt-2 text-sm text-neutral-500">The URL may be old, or the project may have moved.</p>
         <Link
-          href="/projects"
+          href="/investigations"
           className="mt-6 inline-flex rounded-lg bg-brand-400 px-4 py-2 text-sm font-medium text-white hover:bg-brand-500"
         >
-          Back to projects
+          Back to investigations
         </Link>
       </section>
     </main>

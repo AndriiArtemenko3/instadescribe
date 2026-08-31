@@ -34,7 +34,11 @@ details.
 The current video-investigation proof is a deterministic local fixture with no model
 inference or public-web request. Local investigation creation accepts only
 `geolocateProvenance + local`; connected retrieval is not an implemented security
-boundary. The investigation workspace and deployment are also pending.
+boundary. The authenticated Next.js workspace uses the existing opaque-session,
+Origin and CSRF controls, exposes only an exact ten-method/path-pair investigation
+BFF allowlist, parses sparse responses strictly and never proxies source video or
+keyframe pixels. The Browser evidence projection also omits internal
+observation-detail maps. Deployment is still pending.
 
 The repository does not claim production readiness, an SLA or customer-data
 certification. Reports about current source or a referenced historical deployment

@@ -54,8 +54,21 @@ strict isolated child boundary.
 Two deterministic acceptance scenarios cross creation, version-pinned upload,
 queue, worker, persistence, analyst decision and report: one supports a hypothesis
 and one requires abstention. They deliberately perform no model inference or
-public-web request. The investigation workspace, live multimodal run, retrieval,
-persisted replay and benchmark remain later milestones. See
+public-web request.
+
+## 6. Authenticated analyst workspace
+
+The Next.js product surface now lists and creates local investigations, presents
+keyframe metadata, evidence states, an uncalibrated posterior, entropy and the
+objective tool ledger, and records a candidate decision or explicit abstention. A
+strict same-origin BFF admits only the implemented Browser API paths, while the
+browser parser rejects unknown or inconsistent response shapes. Audio description
+moved to an explicit legacy route outside primary navigation.
+
+A PII-free synthetic Playwright fixture verifies list/create, direct upload, every
+human role, workspace, report, abstention and legacy navigation on desktop and
+mobile. It is visibly no-model and contains no source pixels. Live multimodal
+execution, retrieval, persisted replay and benchmark remain later milestones. See
 [Video-investigation foundation](./investigation-architecture.md) and
 [ADR-0011](./adr/0011-observable-video-intelligence.md).
 
@@ -66,7 +79,7 @@ persisted replay and benchmark remain later milestones. See
   claim about its current availability or support status.
 - The API-first beta is implemented and locally verified, not yet cut over.
 - The SDK and CLI are present in source and are not yet published to npm.
-- The investigation foundation is implemented and fixture-verified in source, not
-  deployed and not yet exposed through an analyst workspace.
+- The investigation foundation and analyst workspace are implemented and
+  fixture-verified in source, not deployed.
 - No live customer, billing, SLA, production-readiness or legal-compliance claim is
   made.

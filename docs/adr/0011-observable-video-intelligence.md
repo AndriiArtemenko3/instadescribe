@@ -68,22 +68,28 @@ As of `2026-08-31`, the repository implements:
   host-local inference lease and a bounded `python -I` child with parent-owned
   strict result validation;
 - supportive and mandatory-abstention end-to-end fixtures with no model inference
-  or public-web request.
+  or public-web request;
+- authenticated Next.js list/create/workspace/report routes, an exact investigation
+  BFF allowlist, strict response parsing and role-aware analyst controls;
+- deterministic desktop/mobile browser coverage that explicitly identifies itself
+  as no-model inference and renders keyframe metadata without source pixels.
 
 The stable Integration API, SDK and CLI remain unchanged and hide investigation
 jobs. The worker rejects live Ollama execution before child launch until the
-parent-validated proposal handshake is implemented. The workspace, persisted
-replay, retrieval/geometric verification, damage/change pipeline, calibration,
-benchmark and deployment are not implemented capabilities in this revision. See
+parent-validated proposal handshake is implemented. Persisted replay,
+retrieval/geometric verification, damage/change pipeline, calibration, benchmark
+and deployment are not implemented capabilities in this revision. See
 [Video-investigation foundation](../investigation-architecture.md).
 
 ## Safety and data policy
 
 - Inputs must be analyst uploads, licensed datasets or explicitly permitted feeds.
 - Telegram scraping is excluded.
-- Local mode must make no non-loopback network request.
+- The investigation child/model adapter must not make a public-internet request in
+  local mode; PostgreSQL, private object storage, queue transport and the
+  authenticated BFF remain explicit infrastructure boundaries.
 - Source legal basis, redistribution policy, retention and SHA-256 must be durable.
-- Raw chain-of-thought is neither requested nor displayed. The UI will expose
+- Raw chain-of-thought is neither requested nor displayed. The UI exposes
   evidence, bounded tool decisions, timings and posterior changes instead.
 - Connected results, when implemented, enter as unverified evidence and require
   local verification plus analyst action.
