@@ -446,8 +446,8 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        err = traceback.format_exc()
-        print(f"[{job_id}] FAILED:\n{err}", file=sys.stderr)
+        print(f"[{job_id}] FAILED:", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         STATUS_FILE.write_text(
             json.dumps(
                 {
@@ -456,7 +456,7 @@ if __name__ == "__main__":
                     "stage": "failed",
                     "chunks_done": 0,
                     "chunks_total": 0,
-                    "error": err,
+                    "error": "job processing failed",
                 }
             )
         )

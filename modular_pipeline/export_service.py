@@ -13,7 +13,6 @@ import os
 import subprocess
 import sys
 import threading
-import traceback
 
 import storage
 
@@ -41,8 +40,7 @@ def merged_scenes(job_id: str) -> list[dict]:
     """scenes.json with scene_overrides.json applied as text/active/voice/locked.
     Zero-duration scenes are dropped (the pipeline occasionally emits start==end at
     the tail; the frontend filters them too)."""
-    data_dir = storage.DATA_DIR / job_id
-    raw = json.loads((data_dir / "scenes.json").read_text())
+    raw = json.loads(storage.scenes_file(job_id).read_text())
     overrides = storage.read_overrides(job_id)
     merged: list[dict] = []
     for s in raw:
@@ -92,9 +90,9 @@ def run_export(job_id: str, export_id: str, fmt: str, voice_default: str) -> Non
             elif fmt == "csv":
                 write_csv(merged, out_path)
             else:  # docx
-                entities = json.loads((storage.DATA_DIR / job_id / "entities.json").read_text())
+                entities = json.loads(storage.entities_file(job_id).read_text())
                 entities_by_id = {e["id"]: e for e in entities}
-                settings_path = storage.job_dir(job_id) / "settings.json"
+                settings_path = storage.settings_file(job_id)
                 project_name = "Audio Description Script"
                 if settings_path.exists():
                     try:
@@ -133,9 +131,9 @@ def run_export(job_id: str, export_id: str, fmt: str, voice_default: str) -> Non
         if not video_rel:
             update("failed", 0, "video_missing", error="no source video found")
             return
-        video_path = storage.APP_DIR / "public" / video_rel.lstrip("/")
+        video_path = storage.recorded_video_path(video_rel)
         if not video_path.exists():
-            update("failed", 0, "video_missing", error=f"video file gone: {video_path}")
+            update("failed", 0, "video_missing", error="source video unavailable")
             return
 
         active = []
@@ -214,6 +212,10 @@ def run_export(job_id: str, export_id: str, fmt: str, voice_default: str) -> Non
             download_url=f"/api/jobs/{job_id}/export/{export_id}/download",
         )
     except Exception:
-        update("failed", 0, "error", error=traceback.format_exc()[-2000:])
+        logger.exception(
+            "export failed",
+            extra={"job_id": job_id, "export_id": export_id, "operation": "export"},
+        )
+        update("failed", 0, "error", error="export failed")
     finally:
         _render_sem.release()
