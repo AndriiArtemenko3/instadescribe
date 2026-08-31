@@ -25,6 +25,7 @@ def get_job(
     statement = sa.select(Job).where(
         Job.id == job_id,
         Job.organization_id == principal.organization_id,
+        Job.workflow_kind == "audio_description",
     )
     if for_update:
         # A long-lived worker session may already hold an older ORM identity.
@@ -41,9 +42,20 @@ def get_review(
     *,
     for_update: bool = False,
 ) -> Review | None:
-    statement = sa.select(Review).where(
-        Review.organization_id == principal.organization_id,
-        Review.job_id == job_id,
+    statement = (
+        sa.select(Review)
+        .join(
+            Job,
+            sa.and_(
+                Review.organization_id == Job.organization_id,
+                Review.job_id == Job.id,
+            ),
+        )
+        .where(
+            Review.organization_id == principal.organization_id,
+            Review.job_id == job_id,
+            Job.workflow_kind == "audio_description",
+        )
     )
     if for_update:
         statement = statement.with_for_update().execution_options(populate_existing=True)
@@ -57,9 +69,20 @@ def get_render(
     *,
     for_update: bool = False,
 ) -> Render | None:
-    statement = sa.select(Render).where(
-        Render.organization_id == principal.organization_id,
-        Render.job_id == job_id,
+    statement = (
+        sa.select(Render)
+        .join(
+            Job,
+            sa.and_(
+                Render.organization_id == Job.organization_id,
+                Render.job_id == Job.id,
+            ),
+        )
+        .where(
+            Render.organization_id == principal.organization_id,
+            Render.job_id == job_id,
+            Job.workflow_kind == "audio_description",
+        )
     )
     if for_update:
         statement = statement.with_for_update().execution_options(populate_existing=True)
@@ -80,6 +103,7 @@ def get_scene_manifest(
             Artifact.artifact_type == "scenes_json",
             Artifact.retention_state == "active",
             Job.organization_id == principal.organization_id,
+            Job.workflow_kind == "audio_description",
         )
     ).scalar_one_or_none()
 
@@ -96,6 +120,7 @@ def list_scene_overrides(
             .where(
                 SceneOverride.job_id == job_id,
                 Job.organization_id == principal.organization_id,
+                Job.workflow_kind == "audio_description",
             )
             .order_by(sa.func.length(SceneOverride.scene_id), SceneOverride.scene_id)
         ).scalars()
@@ -151,6 +176,7 @@ def get_published_deliverable(
             Deliverable.organization_id == principal.organization_id,
             Deliverable.state == "published",
             Job.status == "COMPLETED",
+            Job.workflow_kind == "audio_description",
             Render.state == "completed",
         )
     ).scalar_one_or_none()

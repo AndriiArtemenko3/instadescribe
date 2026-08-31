@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 from app.domain.states import JobState
-from app.models import Job, JobEvent
+from app.models import Investigation, Job, JobEvent
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -72,6 +72,18 @@ def _execute_failed_transition(
         statement.values(version=Job.version + 1).returning(Job.organization_id, Job.version)
     ).one_or_none()
     if row is not None:
+        # Keep the parallel investigation aggregate in the same transaction
+        # as its authoritative Job failure. A later claimant can therefore
+        # never race an old worker's second reconciliation commit.
+        session.execute(
+            sa.update(Investigation)
+            .where(
+                Investigation.organization_id == row.organization_id,
+                Investigation.job_id == job_id,
+                Investigation.status.in_(("queued", "preprocessing", "investigating")),
+            )
+            .values(status="failed", updated_at=sa.func.now())
+        )
         session.execute(
             pg_insert(JobEvent)
             .values(**_failed_event_values(job_id, row.organization_id, row.version, error_code))
@@ -161,6 +173,23 @@ def claim_job(
     )
     try:
         claimed = session.execute(stmt).scalar_one_or_none()
+        if claimed is not None and claimed.workflow_kind == "video_investigation":
+            # A hard-crashed owner may have left the parallel aggregate in a
+            # visible in-flight stage. Reset it in the same transaction as the
+            # new Job fence so the reclaimer can restart preprocessing exactly
+            # once; an inconsistent/missing aggregate cancels the claim.
+            mirrored = session.execute(
+                sa.update(Investigation)
+                .where(
+                    Investigation.organization_id == claimed.organization_id,
+                    Investigation.job_id == claimed.id,
+                    Investigation.status.in_(("queued", "preprocessing", "investigating")),
+                )
+                .values(status="queued", updated_at=sa.func.now())
+            ).rowcount
+            if mirrored != 1:
+                session.rollback()
+                return None
         session.commit()
     except IntegrityError as exc:
         session.rollback()
@@ -304,9 +333,19 @@ def guarded_transition(
             job_id=job_id,
             error_code=error_code,
         )
-    result = session.execute(statement)
+    row = session.execute(statement.returning(Job.organization_id, Job.workflow_kind)).one_or_none()
+    if row is not None and row.workflow_kind == "video_investigation":
+        session.execute(
+            sa.update(Investigation)
+            .where(
+                Investigation.organization_id == row.organization_id,
+                Investigation.job_id == job_id,
+                Investigation.status.in_(("preprocessing", "investigating")),
+            )
+            .values(status="queued", updated_at=sa.func.now())
+        )
     session.commit()
-    return result.rowcount > 0
+    return row is not None
 
 
 def renew_lease(

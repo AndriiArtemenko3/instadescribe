@@ -480,6 +480,70 @@ def test_transcript_presign_policy_has_an_independent_ten_mib_cap(monkeypatch):
     )
 
     assert ["content-length-range", 1, 10 * 1024 * 1024] in captured["Conditions"]
+    assert "tagging" not in captured["Fields"]
+    assert not any(
+        isinstance(condition, list) and len(condition) >= 2 and condition[1] == "$tagging"
+        for condition in captured["Conditions"]
+    )
+
+
+def test_investigation_retention_tag_is_an_exact_presigned_post_condition(monkeypatch):
+    from app.services import s3 as s3_service
+
+    captured = {}
+
+    class Presigner:
+        def generate_presigned_post(self, **kwargs):
+            captured.update(kwargs)
+            return {"url": "https://uploads.example.test/", "fields": kwargs["Fields"]}
+
+    monkeypatch.setattr(s3_service, "_presign_client", lambda: Presigner())
+    retention_tag = s3_service.investigation_retention_tag(14)
+    result = s3_service.generate_upload_post(
+        "uploads/orgs/org/jobs/job/source/clip.mp4",
+        "video/mp4",
+        max_bytes=4096,
+        retention_tag=retention_tag,
+    )
+
+    assert retention_tag == (
+        "<Tagging><TagSet><Tag><Key>instadescribe-retention-days</Key>"
+        "<Value>14</Value></Tag></TagSet></Tagging>"
+    )
+    assert captured["Fields"]["tagging"] == retention_tag
+    assert ["eq", "$tagging", retention_tag] in captured["Conditions"]
+    assert result["fields"]["tagging"] == retention_tag
+
+
+@pytest.mark.parametrize(
+    "retention_tag",
+    [
+        "",
+        "<Tagging><TagSet><Tag><Key>instadescribe-retention-days</Key><Value>0</Value></Tag></TagSet></Tagging>",
+        "<Tagging><TagSet><Tag><Key>instadescribe-retention-days</Key><Value>31</Value></Tag></TagSet></Tagging>",
+        "<Tagging><TagSet><Tag><Key>instadescribe-retention-days</Key><Value>01</Value></Tag></TagSet></Tagging>",
+        "<Tagging><TagSet><Tag><Key>other-retention-days</Key><Value>14</Value></Tag></TagSet></Tagging>",
+        "instadescribe-retention-days=14",
+        "not-xml",
+    ],
+)
+def test_investigation_retention_tag_rejects_noncanonical_tiers(
+    monkeypatch,
+    retention_tag,
+):
+    from app.services import s3 as s3_service
+
+    monkeypatch.setattr(
+        s3_service,
+        "_presign_client",
+        lambda: pytest.fail("invalid tag reached the S3 presigner"),
+    )
+    with pytest.raises(ValueError, match="retention tag"):
+        s3_service.generate_upload_post(
+            "uploads/orgs/org/jobs/job/source/clip.mp4",
+            "video/mp4",
+            retention_tag=retention_tag,
+        )
 
 
 @requires_db

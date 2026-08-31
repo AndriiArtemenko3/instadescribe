@@ -29,6 +29,7 @@ from app.models import (
     AuditEvent,
     Deliverable,
     IdempotencyRecord,
+    Investigation,
     Job,
     JobEvent,
     OrganizationQuota,
@@ -257,6 +258,20 @@ def expire_awaiting_uploads(
             )
             if job is None:
                 continue
+            if job.workflow_kind == "video_investigation":
+                mirrored = session.execute(
+                    sa.update(Investigation)
+                    .where(
+                        Investigation.organization_id == job.organization_id,
+                        Investigation.job_id == job.id,
+                        Investigation.status == "awaiting_upload",
+                    )
+                    .values(status="cancelled", updated_at=instant)
+                ).rowcount
+                if mirrored != 1:
+                    raise RuntimeError(
+                        "video investigation upload expiry could not mirror its aggregate"
+                    )
             # An abandoned reservation has no authoritative S3 VersionId to
             # retain or delete exactly. Remove only those uncompleted rows so
             # they cannot block the job/project metadata reaper forever. Any

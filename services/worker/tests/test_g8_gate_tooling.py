@@ -4,6 +4,8 @@ Everything here is injected/mocked — no test starts, stops or deletes any
 real Docker resource, and no real bucket or queue is touched.
 """
 
+import hashlib
+import json
 import sys
 import zlib
 from pathlib import Path
@@ -24,7 +26,11 @@ from g8_common import (  # noqa: E402
     gate_lock_path,
     project_containers,
 )
-from g8_image_proof import IMAGE_REF_RE, compressed_image_size  # noqa: E402
+from g8_image_proof import (  # noqa: E402
+    IMAGE_REF_RE,
+    compressed_image_size,
+    fixture_child_smoke_in_image,
+)
 from g8_log_order import assert_ready_before_ack, parse_worker_events  # noqa: E402
 from g8_source_digest import iter_production_inputs, production_source_digest  # noqa: E402
 
@@ -36,11 +42,15 @@ def _fake_repo(tmp_path: Path) -> Path:
     (tmp_path / "services/api/app/models").mkdir(parents=True)
     (tmp_path / "services/api/app/domain").mkdir(parents=True)
     (tmp_path / "packages/contracts/instadescribe_contracts").mkdir(parents=True)
+    (tmp_path / "packages/investigation-core/src/instadescribe_investigation_core").mkdir(
+        parents=True
+    )
     (tmp_path / "modular_pipeline").mkdir(parents=True)
     (tmp_path / "docs").mkdir(parents=True)
     (tmp_path / "services/worker/Dockerfile").write_text("FROM x\n")
     (tmp_path / "services/worker/requirements.txt").write_text("torch==1\n")
     (tmp_path / "services/worker/requirements.in").write_text("torch\n")
+    (tmp_path / "packages/investigation-core/LICENSE").write_text("Apache License\n")
     (tmp_path / ".dockerignore").write_text(".git\n")
     (tmp_path / "services/api/app/__init__.py").write_text("")
     (tmp_path / "services/api/app/db").mkdir(parents=True)
@@ -60,6 +70,9 @@ def _fake_repo(tmp_path: Path) -> Path:
     (tmp_path / "services/worker/instadescribe_worker/consumer.py").write_text("A = 1\n")
     (tmp_path / "services/api/app/models/job.py").write_text("B = 1\n")
     (tmp_path / "packages/contracts/instadescribe_contracts/queue.py").write_text("C = 1\n")
+    (
+        tmp_path / "packages/investigation-core/src/instadescribe_investigation_core/__init__.py"
+    ).write_text("CORE = 1\n")
     (tmp_path / "modular_pipeline/run_job.py").write_text("D = 1\n")
     (tmp_path / "docs/evidence.md").write_text("evidence only\n")
     return tmp_path
@@ -96,6 +109,16 @@ def test_digest_is_deterministic_and_covers_copied_api_subset(tmp_path):
     preview_bound = production_source_digest(repo, "worker")
     (repo / "services/api/app/services/tts_previews.py").write_text("PREVIEWS = 2\n")
     assert production_source_digest(repo, "worker") != preview_bound
+
+    core_bound = production_source_digest(repo, "worker")
+    (
+        repo / "packages/investigation-core/src/instadescribe_investigation_core/__init__.py"
+    ).write_text("CORE = 2\n")
+    assert production_source_digest(repo, "worker") != core_bound
+
+    license_bound = production_source_digest(repo, "worker")
+    (repo / "packages/investigation-core/LICENSE").write_text("changed\n")
+    assert production_source_digest(repo, "worker") != license_bound
 
 
 def test_digest_pycache_never_participates(tmp_path):
@@ -389,6 +412,39 @@ def test_shell_metacharacters_rejected_before_execution():
     assert calls == []  # nothing was ever executed
     assert IMAGE_REF_RE.fullmatch("instadescribe-worker:g8")
     assert IMAGE_REF_RE.fullmatch("instadescribe-worker@sha256:" + "a" * 64)
+
+
+def test_fixture_child_smoke_is_networkless_and_validates_strict_evidence():
+    calls = []
+    expected = {
+        "status": "needs_review",
+        "sourceSha256": hashlib.sha256(b"g8-production-layout-fixture-child").hexdigest(),
+        "investigationId": "11111111-1111-4111-8111-111111111111",
+        "traceId": "22222222-2222-4222-8222-222222222222",
+        "evidenceCount": 4,
+        "abstained": False,
+        "runtime": "in-process-test-seam",
+    }
+
+    def runner(cmd, *, timeout):
+        calls.append((cmd, timeout))
+        return json.dumps(expected)
+
+    assert fixture_child_smoke_in_image(image="instadescribe-worker:g8", runner=runner) == expected
+    command, timeout = calls[0]
+    assert command[:3] == ["docker", "run", "--rm"]
+    assert command[command.index("--network") + 1] == "none"
+    assert command[command.index("--entrypoint") + 1] == "python"
+    assert "--mount" not in command
+    assert command[-2] == "-c"
+    assert "execute_local_investigation" in command[-1]
+    assert timeout == 300
+
+    with pytest.raises(ValueError, match="unexpected evidence"):
+        fixture_child_smoke_in_image(
+            image="instadescribe-worker:g8",
+            runner=lambda cmd, *, timeout: json.dumps({**expected, "evidenceCount": 3}),
+        )
 
 
 # ── B2: aggregate target shape (static, no execution) ──────────────────────

@@ -120,6 +120,10 @@ COPY --chown=worker:worker modular_pipeline /app/modular_pipeline
 COPY --chown=worker:worker services/worker/instadescribe_worker /app/instadescribe_worker
 # Shared cross-service queue contract — one package, no worker-local copy.
 COPY --chown=worker:worker packages/contracts/instadescribe_contracts /app/instadescribe_contracts
+# Standalone Apache-2.0 evidence/fusion contracts used by the isolated local
+# investigation child. It has no dependency on the BUSL application graph.
+COPY --chown=worker:worker packages/investigation-core/src/instadescribe_investigation_core /app/instadescribe_investigation_core
+COPY --chown=worker:worker packages/investigation-core/LICENSE /app/licenses/instadescribe-investigation-core/LICENSE
 # Canonical persistence/domain code (the API's models ARE the schema owner —
 # ADR-0008): only the model/domain subset, no FastAPI surface.
 COPY --chown=worker:worker services/api/app/__init__.py /app/app/__init__.py
@@ -150,8 +154,13 @@ RUN set -e; \
     fi
 RUN python -c "import instadescribe_worker.main, instadescribe_worker.consumer, \
 instadescribe_worker.render, instadescribe_worker.preview, instadescribe_contracts.queue, app.models, \
-app.domain.states, app.services.lifecycle, app.services.tts_previews" \
-    && ffprobe -version >/dev/null
+instadescribe_investigation_core, instadescribe_worker.investigation, \
+instadescribe_worker.investigation_runtime, instadescribe_worker.investigation_child, \
+instadescribe_worker.investigation_executor, app.domain.states, app.services.lifecycle, \
+app.services.tts_previews" \
+    && ffprobe -version >/dev/null \
+    && test -s /app/licenses/instadescribe-investigation-core/LICENSE \
+    && grep -q "Apache License" /app/licenses/instadescribe-investigation-core/LICENSE
 
 USER worker
 ENV PYTHONUNBUFFERED=1

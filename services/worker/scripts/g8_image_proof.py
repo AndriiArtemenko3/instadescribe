@@ -5,6 +5,8 @@ Asserts, against the FRESH image tag (INSTADESCRIBE_WORKER_IMAGE, default
 instadescribe-worker:g8): linux/amd64; pinned base digest and Whisper snapshot
 revision baked and resolvable offline; HF_HUB_OFFLINE=1; the exercised
 worker dependency behaviours (including TorchAudio and bundled Silero JIT);
+the network-disabled deterministic investigation fixture crosses the real
+production-layout isolated-child boundary and returns a strictly validated result;
 non-root UID 10001; forbidden assets absent
 (fixture, smoke script, tests, .env, media, job data, handoffs); the current
 API model/domain copy imports from inside the image; exact image ID, created
@@ -12,6 +14,7 @@ time and unpacked/compressed sizes. Exits nonzero on the first violation and
 prints a JSON evidence block on success.
 """
 
+import hashlib
 import json
 import re
 import subprocess
@@ -30,10 +33,88 @@ from instadescribe_contracts.environment import getenv_compat  # noqa: E402
 IMAGE = getenv_compat("INSTADESCRIBE_WORKER_IMAGE") or "instadescribe-worker:g8"
 DOCKERFILE = REPO / "services" / "worker" / "Dockerfile"
 DEPENDENCY_SMOKE = REPO / "services" / "worker" / "scripts" / "dependency_runtime_smoke.py"
+INVESTIGATION_CORE_LICENSE = REPO / "packages" / "investigation-core" / "LICENSE"
 
 # A conservative image-reference shape: name[:tag][@digest] with no shell
 # metacharacters — rejected BEFORE any subprocess runs (G8.1 E).
 IMAGE_REF_RE = re.compile(r"^[a-z0-9]+(?:[._/:@-][a-z0-9]+)*$", re.IGNORECASE)
+
+_FIXTURE_CHILD_MEDIA = b"g8-production-layout-fixture-child"
+_FIXTURE_CHILD_INVESTIGATION_ID = "11111111-1111-4111-8111-111111111111"
+_FIXTURE_CHILD_TRACE_ID = "22222222-2222-4222-8222-222222222222"
+_FIXTURE_CHILD_SCRIPT = f"""
+import hashlib
+import json
+import tempfile
+from datetime import UTC, datetime
+from pathlib import Path
+
+from instadescribe_investigation_core import (
+    ConnectivityPolicy,
+    InvestigationKind,
+    InvestigationStatus,
+    SourceRecord,
+)
+from instadescribe_worker.config import WorkerSettings
+from instadescribe_worker.executor import reset_shutdown_state
+from instadescribe_worker.investigation_executor import execute_local_investigation
+
+media_body = {_FIXTURE_CHILD_MEDIA!r}
+with tempfile.TemporaryDirectory(prefix="g8-investigation-") as temporary:
+    workspace = Path(temporary)
+    media_path = workspace / "fixture.mp4"
+    media_path.write_bytes(media_body)
+    source = SourceRecord(
+        source_id="g8-image-fixture",
+        content_sha256=hashlib.sha256(media_body).hexdigest(),
+        collected_at=datetime(2026, 8, 30, 12, tzinfo=UTC),
+        license_basis="licensed:test-fixture",
+        publisher="InstaDescribe G8",
+        source_url=None,
+        published_at=None,
+        consent_basis="synthetic-test-fixture",
+        redistribution_policy="none",
+        retention_policy="ephemeral",
+    )
+    settings = WorkerSettings(
+        DATABASE_URL="postgresql+psycopg://unused:unused@127.0.0.1/unused",
+        INSTADESCRIBE_PROVIDER="local",
+        INSTADESCRIBE_MAX_ATTEMPTS=3,
+        INSTADESCRIBE_INVESTIGATION_RUNTIME="fixture",
+        INSTADESCRIBE_TEST_FIXTURE_RUNTIME=True,
+        INSTADESCRIBE_PIPELINE_REVISION="g8-fixture-child-smoke",
+    )
+    reset_shutdown_state()
+    result = execute_local_investigation(
+        settings,
+        media_path=media_path,
+        workspace=workspace,
+        source=source,
+        duration_seconds=30,
+        investigation_id={_FIXTURE_CHILD_INVESTIGATION_ID!r},
+        trace_id={_FIXTURE_CHILD_TRACE_ID!r},
+        kind=InvestigationKind.GEOLOCATE_PROVENANCE,
+        on_tick=lambda: None,
+    )
+    assert result.source == source
+    assert result.investigation.kind is InvestigationKind.GEOLOCATE_PROVENANCE
+    assert result.investigation.connectivity_policy is ConnectivityPolicy.LOCAL
+    assert result.investigation.status is InvestigationStatus.NEEDS_REVIEW
+    assert result.investigation.investigation_id == {_FIXTURE_CHILD_INVESTIGATION_ID!r}
+    assert result.investigation.trace_id == {_FIXTURE_CHILD_TRACE_ID!r}
+    assert not result.belief.abstained
+    assert len(result.evidence) == 4
+    assert result.investigation.model_provenance[0].runtime == "in-process-test-seam"
+    print(json.dumps({{
+        "status": result.investigation.status.value,
+        "sourceSha256": result.source.content_sha256,
+        "investigationId": result.investigation.investigation_id,
+        "traceId": result.investigation.trace_id,
+        "evidenceCount": len(result.evidence),
+        "abstained": result.belief.abstained,
+        "runtime": result.investigation.model_provenance[0].runtime,
+    }}, sort_keys=True))
+"""
 
 
 def compressed_image_size(image: str, popen=subprocess.Popen) -> int:
@@ -123,6 +204,48 @@ def dependency_smoke_in_image(timeout: int = 600) -> str:
     )
 
 
+def fixture_child_smoke_in_image(
+    *,
+    image: str = IMAGE,
+    runner=run,
+    timeout: int = 300,
+) -> dict[str, object]:
+    """Exercise the real fixture executor/child boundary in the final image."""
+
+    if not IMAGE_REF_RE.fullmatch(image):
+        raise ValueError("invalid image reference")
+    output = runner(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--platform",
+            "linux/amd64",
+            "--network",
+            "none",
+            "--entrypoint",
+            "python",
+            image,
+            "-c",
+            _FIXTURE_CHILD_SCRIPT,
+        ],
+        timeout=timeout,
+    )
+    result = json.loads(output)
+    expected = {
+        "status": "needs_review",
+        "sourceSha256": hashlib.sha256(_FIXTURE_CHILD_MEDIA).hexdigest(),
+        "investigationId": _FIXTURE_CHILD_INVESTIGATION_ID,
+        "traceId": _FIXTURE_CHILD_TRACE_ID,
+        "evidenceCount": 4,
+        "abstained": False,
+        "runtime": "in-process-test-seam",
+    }
+    if not isinstance(result, dict) or result != expected:
+        raise ValueError("fixture child smoke returned unexpected evidence")
+    return result
+
+
 def main() -> None:
     dockerfile = DOCKERFILE.read_text()
     base_digest = re.search(r"python:3\.12-slim@(sha256:[0-9a-f]{64})", dockerfile)
@@ -201,6 +324,12 @@ def main() -> None:
         die(f"dependency runtime smoke returned unexpected evidence: {dependency_smoke}")
     evidence["dependency_runtime_smoke"] = dependency_smoke["checks"]
 
+    try:
+        fixture_child_smoke = fixture_child_smoke_in_image()
+    except (json.JSONDecodeError, ValueError) as exc:
+        die(f"investigation fixture child smoke returned invalid evidence: {exc}")
+    evidence["investigation_fixture_child"] = fixture_child_smoke
+
     absent = in_image(
         "set -e; "
         "for p in /app/fixtures /app/g0_smoke.py /app/App /app/modular_pipeline/.env "
@@ -215,12 +344,26 @@ def main() -> None:
         die("forbidden assets present in the production image")
     evidence["forbidden_assets"] = "absent"
 
+    expected_license_digest = hashlib.sha256(INVESTIGATION_CORE_LICENSE.read_bytes()).hexdigest()
+    license_proof = in_image(
+        "set -e; test -s /app/licenses/instadescribe-investigation-core/LICENSE; "
+        "grep -q 'Apache License' /app/licenses/instadescribe-investigation-core/LICENSE; "
+        "sha256sum /app/licenses/instadescribe-investigation-core/LICENSE"
+    ).split()
+    if not license_proof or license_proof[0] != expected_license_digest:
+        die("nested investigation-core Apache license is missing or differs from source")
+    evidence["investigation_core_license_sha256"] = expected_license_digest
+
     # The CURRENT API model/domain copy imports from inside the image.
     imports = in_image(
         'python -c "import instadescribe_worker.main, instadescribe_worker.consumer, '
-        "instadescribe_worker.render, instadescribe_contracts.queue, app.models, "
+        "instadescribe_worker.render, instadescribe_worker.investigation, "
+        "instadescribe_worker.investigation_child, instadescribe_worker.investigation_executor, "
+        "instadescribe_worker.investigation_runtime, instadescribe_contracts.queue, "
+        "instadescribe_investigation_core, app.models, "
         "app.domain.states, app.services.lifecycle; "
-        "from app.models import Artifact, Job; print('api-copy-import-ok')\""
+        "from app.models import Artifact, Investigation, Job, SourceRecord; "
+        "print('api-copy-import-ok')\""
     )
     if "api-copy-import-ok" not in imports:
         die("API model/domain copy failed to import inside the image")

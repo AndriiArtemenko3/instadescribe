@@ -37,12 +37,12 @@ from app.core.rfc3339 import utc_timestamp
 from app.core.tenancy import PORTFOLIO_ORGANIZATION_ID
 from app.db.session import get_db
 from app.domain.states import JobState, to_legacy_status
-from app.models import Job, Project
+from app.models import Investigation, Job, Project
 from app.repositories.jobs import transition_job
 from app.schemas.jobs import CreateJobRequest, JobSummary
 from app.services.quota import QuotaExceededError, QuotaStateError, reserve_job_media
 from app.services.s3 import canonical_source_key, generate_upload_post, head_source
-from app.services.sqs import send_task_message
+from app.services.sqs import send_investigation_task_message, send_task_message
 
 logger = logging.getLogger("app.jobs")
 
@@ -59,6 +59,59 @@ _ALREADY_ACCEPTED = frozenset(
         JobState.COMPLETED,
     }
 )
+_INVESTIGATION_UPLOAD_ACCEPTED = _ALREADY_ACCEPTED | {JobState.UPLOAD_COMPLETE}
+
+
+def mirror_investigation_upload_acceptance(
+    db: Session,
+    job_id: uuid.UUID,
+    organization_id: uuid.UUID,
+) -> bool:
+    """Mirror an accepted video upload before a worker can consume it.
+
+    The conditional update is safe to repeat and is deliberately executed in
+    the same transaction as AWAITING_UPLOAD -> UPLOAD_COMPLETE.  It also acts
+    as a recovery seam for an already accepted job created by an older API
+    process.  Audio-description jobs are untouched.
+    """
+    job = db.execute(
+        sa.select(Job.workflow_kind, Job.status).where(
+            Job.id == job_id,
+            Job.organization_id == organization_id,
+        )
+    ).one_or_none()
+    if job is None or job.workflow_kind != "video_investigation":
+        return False
+    if JobState(job.status) not in _INVESTIGATION_UPLOAD_ACCEPTED:
+        return False
+
+    now = datetime.now(UTC)
+    moved = db.execute(
+        sa.update(Investigation)
+        .where(
+            Investigation.organization_id == organization_id,
+            Investigation.job_id == job_id,
+            Investigation.status == "awaiting_upload",
+        )
+        .values(status="queued", updated_at=now)
+        .returning(Investigation.id)
+    ).scalar_one_or_none()
+    if moved is not None:
+        return True
+
+    status = db.execute(
+        sa.select(Investigation.status).where(
+            Investigation.organization_id == organization_id,
+            Investigation.job_id == job_id,
+        )
+    ).scalar_one_or_none()
+    if status is None:
+        raise _http_error(
+            409,
+            "investigation_state_conflict",
+            "video investigation record is missing",
+        )
+    return False
 
 
 def _is_slot_violation(exc: IntegrityError) -> bool:
@@ -314,6 +367,8 @@ def complete_upload_for_organization(
     parsed: uuid.UUID,
     db: Session,
     organization_id: uuid.UUID,
+    *,
+    allow_video_investigation: bool = False,
 ):
     """Verify and enqueue one organization-scoped job.
 
@@ -329,11 +384,17 @@ def complete_upload_for_organization(
             Project.organization_id == organization_id,
         )
     ).scalar_one_or_none()
-    if job is None:
+    if job is None or (
+        job.workflow_kind == "video_investigation" and not allow_video_investigation
+    ):
+        raise _http_error(404, "not_found", "not found")
+    if job.workflow_kind not in {"audio_description", "video_investigation"}:
         raise _http_error(404, "not_found", "not found")
 
     state = JobState(job.status)
     if state in _ALREADY_ACCEPTED:
+        if mirror_investigation_upload_acceptance(db, parsed, organization_id):
+            db.commit()
         return JSONResponse(
             status_code=200,
             content={
@@ -411,6 +472,10 @@ def complete_upload_for_organization(
                     "enqueue_attempt_count": Job.enqueue_attempt_count + 1,
                 },
             )
+            if moved is not None:
+                # This must be durable before SQS can expose the job to a
+                # video-investigation worker.
+                mirror_investigation_upload_acceptance(db, parsed, organization_id)
             db.commit()
         except IntegrityError as exc:
             db.rollback()
@@ -428,6 +493,8 @@ def complete_upload_for_organization(
             job = db.get(Job, parsed)
             state = JobState(job.status)
             if state in _ALREADY_ACCEPTED:
+                if mirror_investigation_upload_acceptance(db, parsed, organization_id):
+                    db.commit()
                 return JSONResponse(
                     status_code=200,
                     content={
@@ -440,6 +507,8 @@ def complete_upload_for_organization(
                 raise _http_error(409, "terminal_conflict", "job is in a terminal state")
             message_id, requested_at = _retry_identity(db, parsed, job, etag, version_id, checksum)
     else:  # UPLOAD_COMPLETE — publication retry
+        if mirror_investigation_upload_acceptance(db, parsed, organization_id):
+            db.commit()
         message_id, requested_at = _retry_identity(db, parsed, job, etag, version_id, checksum)
 
     # Immutable response identity captured BEFORE the send: after a
@@ -447,6 +516,7 @@ def complete_upload_for_organization(
     # turn the promised accepted 202 into a 500.
     response_project_id = str(job.project_id)
     response_job_id = str(parsed)
+    response_workflow_kind = job.workflow_kind
 
     message = QueueMessage(
         schema_version=1,
@@ -456,7 +526,15 @@ def complete_upload_for_organization(
         requested_at=requested_at,
     )
     try:
-        send_task_message(message)
+        if response_workflow_kind == "video_investigation":
+            send_investigation_task_message(message)
+        elif response_workflow_kind == "audio_description":
+            send_task_message(message)
+        else:
+            # Database constraints make this unreachable for a valid row; a
+            # corrupt/unknown workflow must fail closed rather than leak onto
+            # either compute queue.
+            raise ValueError("unsupported workflow kind")
     except Exception:
         _record_enqueue_failure(db, parsed, now)
         # Category only — no queue URL, credential, or AWS error text.
@@ -564,6 +642,7 @@ def list_jobs(limit: int = 50, db: Session = Depends(get_db)) -> dict[str, JobSu
         sa.select(Job, Project)
         .join(Project, Job.project_id == Project.id)
         .where(Project.organization_id == PORTFOLIO_ORGANIZATION_ID)
+        .where(Job.workflow_kind == "audio_description")
         # Migration 0002 intentionally reused each populated pre-G3 job UUID
         # for its synthetic project. Those rows cannot satisfy the cloud
         # contract's distinct project/job identities and have no G3+ cloud
@@ -586,6 +665,7 @@ def get_job(job_id: str, db: Session = Depends(get_db)) -> JobSummary:
         .join(Project, Job.project_id == Project.id)
         .where(
             Job.id == parsed,
+            Job.workflow_kind == "audio_description",
             Project.organization_id == PORTFOLIO_ORGANIZATION_ID,
         )
     ).one_or_none()

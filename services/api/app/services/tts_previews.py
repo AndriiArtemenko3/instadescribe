@@ -103,6 +103,7 @@ def _valid_open_review(preview_table=TtsPreview):
             Job.organization_id == preview_table.organization_id,
             Job.id == preview_table.job_id,
             Job.status == JobState.READY_FOR_REVIEW.value,
+            Job.workflow_kind == "audio_description",
         ),
         sa.exists().where(
             Review.organization_id == preview_table.organization_id,
@@ -125,6 +126,7 @@ def _open_review_exists(
                         Job.organization_id == organization_id,
                         Job.id == job_id,
                         Job.status == JobState.READY_FOR_REVIEW.value,
+                        Job.workflow_kind == "audio_description",
                     ),
                     sa.exists().where(
                         Review.organization_id == organization_id,
@@ -167,6 +169,7 @@ def create_preview(
         .where(
             Job.organization_id == principal.organization_id,
             Job.id == job_id,
+            Job.workflow_kind == "audio_description",
         )
         .with_for_update()
     ).scalar_one_or_none()
@@ -286,10 +289,19 @@ def get_preview(
     preview_id: uuid.UUID,
 ) -> TtsPreview:
     preview = session.execute(
-        sa.select(TtsPreview).where(
+        sa.select(TtsPreview)
+        .join(
+            Job,
+            sa.and_(
+                TtsPreview.organization_id == Job.organization_id,
+                TtsPreview.job_id == Job.id,
+            ),
+        )
+        .where(
             TtsPreview.organization_id == principal.organization_id,
             TtsPreview.id == preview_id,
             TtsPreview.expires_at > sa.func.now(),
+            Job.workflow_kind == "audio_description",
         )
     ).scalar_one_or_none()
     if preview is None:

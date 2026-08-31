@@ -78,6 +78,28 @@ override_resource {
 }
 
 override_resource {
+  target          = aws_sqs_queue.investigation
+  override_during = plan
+  values = {
+    id   = "https://sqs.eu-west-2.amazonaws.com/123456789012/instadescribe-beta-investigation"
+    url  = "https://sqs.eu-west-2.amazonaws.com/123456789012/instadescribe-beta-investigation"
+    arn  = "arn:aws:sqs:eu-west-2:123456789012:instadescribe-beta-investigation"
+    name = "instadescribe-beta-investigation"
+  }
+}
+
+override_resource {
+  target          = aws_sqs_queue.investigation_dlq
+  override_during = plan
+  values = {
+    id   = "https://sqs.eu-west-2.amazonaws.com/123456789012/instadescribe-beta-investigation-dlq"
+    url  = "https://sqs.eu-west-2.amazonaws.com/123456789012/instadescribe-beta-investigation-dlq"
+    arn  = "arn:aws:sqs:eu-west-2:123456789012:instadescribe-beta-investigation-dlq"
+    name = "instadescribe-beta-investigation-dlq"
+  }
+}
+
+override_resource {
   target          = aws_cloudfront_cache_policy.next_private_disabled
   override_during = plan
   values = {
@@ -258,6 +280,22 @@ run "bootstrap_services_off" {
 
   assert {
     condition = (
+      length(aws_sqs_queue.investigation) == 0 &&
+      length(aws_sqs_queue.investigation_dlq) == 0 &&
+      length(aws_sqs_queue_redrive_allow_policy.investigation_dlq) == 0 &&
+      length(aws_cloudwatch_metric_alarm.investigation_dlq_visible) == 0 &&
+      length(local.api_investigation_environment) == 0 &&
+      length([
+        for statement in data.aws_iam_policy_document.api_task.statement : statement
+        if statement.sid == "PublishLocalInvestigations"
+      ]) == 0 &&
+      !contains([for item in local.worker_environment : item.name], "INSTADESCRIBE_INVESTIGATION_QUEUE_URL")
+    )
+    error_message = "The legacy portfolio stack must not provision, publish or expose the beta investigation queue."
+  }
+
+  assert {
+    condition = (
       var.enable_g12_openai == false &&
       local.processing_provider == "fake" &&
       local.processing_max_duration_secs == 300 &&
@@ -282,6 +320,18 @@ run "bootstrap_services_off" {
   assert {
     condition     = aws_s3_bucket_versioning.media.versioning_configuration[0].status == "Enabled"
     error_message = "Exact-version source reads require media-bucket versioning."
+  }
+
+  assert {
+    condition = (
+      !contains(one(aws_s3_bucket_cors_configuration.media.cors_rule).allowed_headers, "x-amz-tagging") &&
+      length(aws_s3_bucket_lifecycle_configuration.media.rule) == 3 &&
+      length([
+        for statement in data.aws_iam_policy_document.api_task.statement : statement
+        if statement.sid == "TagInvestigationSourceRetention"
+      ]) == 0
+    )
+    error_message = "The legacy portfolio upload CORS, lifecycle-rule count and API permissions must remain untagged."
   }
 
   assert {
@@ -450,6 +500,110 @@ run "beta_safety_profile" {
       aws_sqs_queue.dlq.message_retention_seconds == 1209600
     )
     error_message = "Beta work and DLQ retention must be four and fourteen days."
+  }
+
+  assert {
+    condition = (
+      length(aws_sqs_queue.investigation) == 1 &&
+      length(aws_sqs_queue.investigation_dlq) == 1 &&
+      aws_sqs_queue.investigation[0].visibility_timeout_seconds == 1800 &&
+      aws_sqs_queue.investigation[0].message_retention_seconds == 345600 &&
+      aws_sqs_queue.investigation[0].receive_wait_time_seconds == 20 &&
+      aws_sqs_queue.investigation[0].sqs_managed_sse_enabled &&
+      aws_sqs_queue.investigation_dlq[0].message_retention_seconds == 1209600 &&
+      aws_sqs_queue.investigation_dlq[0].sqs_managed_sse_enabled &&
+      jsondecode(aws_sqs_queue.investigation[0].redrive_policy).deadLetterTargetArn == aws_sqs_queue.investigation_dlq[0].arn &&
+      jsondecode(aws_sqs_queue.investigation[0].redrive_policy).maxReceiveCount == 3 &&
+      jsondecode(aws_sqs_queue_redrive_allow_policy.investigation_dlq[0].redrive_allow_policy).redrivePermission == "byQueue" &&
+      jsondecode(aws_sqs_queue_redrive_allow_policy.investigation_dlq[0].redrive_allow_policy).sourceQueueArns == [aws_sqs_queue.investigation[0].arn] &&
+      length(aws_cloudwatch_metric_alarm.investigation_dlq_visible) == 1
+    )
+    error_message = "Beta needs one encrypted, long-polled investigation queue with a 3-attempt redrive contract and isolated 14-day DLQ."
+  }
+
+  assert {
+    condition = (
+      [for item in local.api_investigation_environment : item.name] == ["INSTADESCRIBE_INVESTIGATION_QUEUE_URL"] &&
+      local.api_investigation_environment[0].value == aws_sqs_queue.investigation[0].url
+    )
+    error_message = "The beta API task must receive the exact investigation queue URL."
+  }
+
+  assert {
+    condition     = !contains([for item in local.worker_environment : item.name], "INSTADESCRIBE_INVESTIGATION_QUEUE_URL")
+    error_message = "The existing Fargate AD worker must not receive the investigation queue URL."
+  }
+
+  assert {
+    condition = one([
+      for statement in data.aws_iam_policy_document.api_task.statement :
+      length(statement.actions) == 2 &&
+      contains(statement.actions, "sqs:GetQueueUrl") &&
+      contains(statement.actions, "sqs:SendMessage") &&
+      toset(statement.resources) == toset([aws_sqs_queue.investigation[0].arn])
+      if statement.sid == "PublishLocalInvestigations"
+    ])
+    error_message = "Only the beta API may publish to the exact investigation queue ARN."
+  }
+
+  assert {
+    condition = (
+      contains(one(aws_s3_bucket_cors_configuration.media.cors_rule).allowed_headers, "Content-Type") &&
+      contains(one(aws_s3_bucket_cors_configuration.media.cors_rule).allowed_methods, "POST") &&
+      !contains(one(aws_s3_bucket_cors_configuration.media.cors_rule).allowed_headers, "x-amz-tagging") &&
+      length(aws_s3_bucket_lifecycle_configuration.media.rule) == 33 &&
+      one([
+        for rule in aws_s3_bucket_lifecycle_configuration.media.rule :
+        rule.status == "Enabled" &&
+        one(rule.filter).prefix == "uploads/" &&
+        one(rule.expiration).days == 30 &&
+        one(rule.noncurrent_version_expiration).noncurrent_days == 30
+        if rule.id == "expire-abandoned-uploads"
+      ]) &&
+      alltrue([
+        for days in range(1, 31) : one([
+          for rule in aws_s3_bucket_lifecycle_configuration.media.rule :
+          rule.status == "Enabled" &&
+          one(one(rule.filter).and).prefix == "uploads/orgs/" &&
+          one(one(rule.filter).and).tags[local.investigation_retention_tag_key] == tostring(days) &&
+          one(rule.expiration).days == days &&
+          one(rule.noncurrent_version_expiration).noncurrent_days == days &&
+          length(rule.abort_incomplete_multipart_upload) == 0
+          if rule.id == "expire-investigation-source-${days}d"
+        ])
+      ])
+    )
+    error_message = "Beta investigation POST Object uploads need exact multipart CORS support, a 30-day untagged fallback and all 1..30-day tagged current/noncurrent lifecycle tiers."
+  }
+
+  assert {
+    condition = (
+      one([
+        for statement in data.aws_iam_policy_document.api_task.statement :
+        length(statement.actions) == 1 &&
+        contains(statement.actions, "s3:PutObjectTagging") &&
+        length(statement.resources) == 1 &&
+        contains(statement.resources, local.source_video_object_arn) &&
+        length([
+          for condition in statement.condition : condition
+          if condition.test == "ForAllValues:StringEquals" &&
+          condition.variable == "s3:RequestObjectTagKeys" &&
+          toset(condition.values) == toset([local.investigation_retention_tag_key])
+        ]) == 1 &&
+        length([
+          for condition in statement.condition : condition
+          if condition.test == "StringEquals" &&
+          condition.variable == "s3:RequestObjectTag/${local.investigation_retention_tag_key}" &&
+          toset(condition.values) == toset([for days in range(1, 31) : tostring(days)])
+        ]) == 1
+        if statement.sid == "TagInvestigationSourceRetention"
+      ]) &&
+      alltrue([
+        for statement in data.aws_iam_policy_document.api_task.statement :
+        !contains(statement.actions, "s3:DeleteObjectTagging")
+      ])
+    )
+    error_message = "Only the beta API may apply the exact investigation retention tag key/tiers to tenant source-video uploads; no API statement may delete tags."
   }
 
   assert {

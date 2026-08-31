@@ -1,6 +1,160 @@
 {
   "components": {
     "schemas": {
+      "AnalystDecisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "abstain": {
+            "title": "Abstain",
+            "type": "boolean"
+          },
+          "abstentionReason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstentionreason"
+          },
+          "evidenceDecisions": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceDecisionInput"
+            },
+            "title": "Evidencedecisions",
+            "type": "array"
+          },
+          "finalHypothesis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InvestigationHypothesis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          }
+        },
+        "required": [
+          "evidenceDecisions",
+          "abstain"
+        ],
+        "title": "AnalystDecisionRequest",
+        "type": "object"
+      },
+      "AnalystDecisionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "abstained": {
+            "title": "Abstained",
+            "type": "boolean"
+          },
+          "abstentionReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstentionreason"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "decidedByPrincipalId": {
+            "format": "uuid",
+            "title": "Decidedbyprincipalid",
+            "type": "string"
+          },
+          "decisionId": {
+            "format": "uuid",
+            "title": "Decisionid",
+            "type": "string"
+          },
+          "evidenceDecisions": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceDecisionInput"
+            },
+            "title": "Evidencedecisions",
+            "type": "array"
+          },
+          "finalHypothesis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InvestigationHypothesis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "status": {
+            "const": "final",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decisionId",
+          "status",
+          "evidenceDecisions",
+          "finalHypothesis",
+          "abstained",
+          "abstentionReason",
+          "notes",
+          "decidedByPrincipalId",
+          "createdAt"
+        ],
+        "title": "AnalystDecisionResponse",
+        "type": "object"
+      },
+      "AnalystDecisionResult": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/AnalystDecisionResponse"
+          },
+          "investigation": {
+            "$ref": "#/components/schemas/InvestigationDetail"
+          }
+        },
+        "required": [
+          "investigation",
+          "decision"
+        ],
+        "title": "AnalystDecisionResult",
+        "type": "object"
+      },
       "ArtifactRef": {
         "properties": {
           "checksumSha256": {
@@ -27,6 +181,210 @@
           "checksumSha256"
         ],
         "title": "ArtifactRef",
+        "type": "object"
+      },
+      "BeliefCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "city": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "countryCode": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Countrycode"
+          },
+          "id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "latitude": {
+            "anyOf": [
+              {
+                "maximum": 90.0,
+                "minimum": -90.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latitude"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": -180.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longitude"
+          },
+          "probability": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Probability",
+            "type": "number"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "probability"
+        ],
+        "title": "BeliefCandidate",
+        "type": "object"
+      },
+      "BeliefSnapshotListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/BeliefSnapshotResponse"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "BeliefSnapshotListResponse",
+        "type": "object"
+      },
+      "BeliefSnapshotResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "abstained": {
+            "title": "Abstained",
+            "type": "boolean"
+          },
+          "beliefSnapshotId": {
+            "format": "uuid",
+            "title": "Beliefsnapshotid",
+            "type": "string"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/BeliefCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "entropy": {
+            "minimum": 0.0,
+            "title": "Entropy",
+            "type": "number"
+          },
+          "sequence": {
+            "minimum": 1.0,
+            "title": "Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "beliefSnapshotId",
+          "sequence",
+          "candidates",
+          "entropy",
+          "abstained",
+          "createdAt"
+        ],
+        "title": "BeliefSnapshotResponse",
+        "type": "object"
+      },
+      "BoundingBox": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "BoundingBox",
         "type": "object"
       },
       "BrowserFinishReviewRequest": {
@@ -561,6 +919,173 @@
           "fileSizeBytes"
         ],
         "title": "CreateJobRequest",
+        "type": "object"
+      },
+      "EvidenceDecisionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "evidenceId": {
+            "format": "uuid",
+            "title": "Evidenceid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evidenceId",
+          "decision"
+        ],
+        "title": "EvidenceDecisionInput",
+        "type": "object"
+      },
+      "EvidenceItemResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoundingBox"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "correlationGroup": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Correlationgroup",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "evidenceId": {
+            "format": "uuid",
+            "title": "Evidenceid",
+            "type": "string"
+          },
+          "frameTimeMs": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Frametimems"
+          },
+          "kind": {
+            "enum": [
+              "keyframe",
+              "visual",
+              "ocr",
+              "audio",
+              "metadata",
+              "web",
+              "geospatial",
+              "change"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "observation": {
+            "$ref": "#/components/schemas/EvidenceObservation"
+          },
+          "polarity": {
+            "enum": [
+              "supports",
+              "contradicts",
+              "neutral"
+            ],
+            "title": "Polarity",
+            "type": "string"
+          },
+          "reliability": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Reliability",
+            "type": "number"
+          },
+          "verificationState": {
+            "enum": [
+              "proposed",
+              "verified",
+              "rejected"
+            ],
+            "title": "Verificationstate",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evidenceId",
+          "kind",
+          "observation",
+          "frameTimeMs",
+          "bbox",
+          "polarity",
+          "reliability",
+          "verificationState",
+          "correlationGroup",
+          "createdAt"
+        ],
+        "title": "EvidenceItemResponse",
+        "type": "object"
+      },
+      "EvidenceListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceItemResponse"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "EvidenceListResponse",
+        "type": "object"
+      },
+      "EvidenceObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "details": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "summary": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary"
+        ],
+        "title": "EvidenceObservation",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -1858,6 +2383,979 @@
         "title": "IntegrationVideoInput",
         "type": "object"
       },
+      "InvestigationCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "connectivityPolicy": {
+            "enum": [
+              "local",
+              "textOnly",
+              "approvedCrops",
+              "connected"
+            ],
+            "title": "Connectivitypolicy",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "geolocateProvenance",
+              "damageChange"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/InvestigationSourceInput"
+          },
+          "video": {
+            "$ref": "#/components/schemas/InvestigationVideoInput"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "connectivityPolicy",
+          "video",
+          "source"
+        ],
+        "title": "InvestigationCreateRequest",
+        "type": "object"
+      },
+      "InvestigationCreateResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "investigation": {
+            "$ref": "#/components/schemas/InvestigationDetail"
+          },
+          "upload": {
+            "$ref": "#/components/schemas/IntegrationPresignedUpload"
+          }
+        },
+        "required": [
+          "investigation",
+          "upload"
+        ],
+        "title": "InvestigationCreateResponse",
+        "type": "object"
+      },
+      "InvestigationDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "abstained": {
+            "title": "Abstained",
+            "type": "boolean"
+          },
+          "abstentionReason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abstentionreason"
+          },
+          "calibratedConfidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibratedconfidence"
+          },
+          "completedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completedat"
+          },
+          "connectivityPolicy": {
+            "enum": [
+              "local",
+              "textOnly",
+              "approvedCrops",
+              "connected"
+            ],
+            "title": "Connectivitypolicy",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "finalHypothesis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InvestigationHypothesis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "investigationId": {
+            "format": "uuid",
+            "title": "Investigationid",
+            "type": "string"
+          },
+          "jobId": {
+            "format": "uuid",
+            "title": "Jobid",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "geolocateProvenance",
+              "damageChange"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "modelProvenance": {
+            "$ref": "#/components/schemas/InvestigationModelProvenance"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "projectId": {
+            "format": "uuid",
+            "title": "Projectid",
+            "type": "string"
+          },
+          "runtimeProvenance": {
+            "$ref": "#/components/schemas/InvestigationRuntimeProvenance"
+          },
+          "status": {
+            "enum": [
+              "awaitingUpload",
+              "queued",
+              "preprocessing",
+              "investigating",
+              "needsReview",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "traceId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Traceid"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "investigationId",
+          "projectId",
+          "jobId",
+          "name",
+          "kind",
+          "connectivityPolicy",
+          "status",
+          "abstained",
+          "calibratedConfidence",
+          "createdAt",
+          "updatedAt",
+          "traceId",
+          "modelProvenance",
+          "runtimeProvenance",
+          "finalHypothesis",
+          "abstentionReason",
+          "completedAt"
+        ],
+        "title": "InvestigationDetail",
+        "type": "object"
+      },
+      "InvestigationHypothesis": {
+        "additionalProperties": false,
+        "properties": {
+          "city": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "countryCode": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Countrycode"
+          },
+          "id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "latitude": {
+            "anyOf": [
+              {
+                "maximum": 90.0,
+                "minimum": -90.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latitude"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": -180.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longitude"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "InvestigationHypothesis",
+        "type": "object"
+      },
+      "InvestigationListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/InvestigationSummary"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "InvestigationListResponse",
+        "type": "object"
+      },
+      "InvestigationModelProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "executedLocally": {
+            "title": "Executedlocally",
+            "type": "boolean"
+          },
+          "modelDigest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modeldigest"
+          },
+          "modelId": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modelid"
+          },
+          "promptDigest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promptdigest"
+          }
+        },
+        "required": [
+          "executedLocally"
+        ],
+        "title": "InvestigationModelProvenance",
+        "type": "object"
+      },
+      "InvestigationReportResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalystDecisionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceItemResponse"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "investigation": {
+            "$ref": "#/components/schemas/InvestigationDetail"
+          },
+          "latestBelief": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BeliefSnapshotResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/InvestigationSourceResponse"
+          }
+        },
+        "required": [
+          "investigation",
+          "source",
+          "decision",
+          "evidence",
+          "latestBelief"
+        ],
+        "title": "InvestigationReportResponse",
+        "type": "object"
+      },
+      "InvestigationRuntimeProvenance": {
+        "additionalProperties": false,
+        "properties": {
+          "platform": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform"
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime"
+          },
+          "runtimeVersion": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtimeversion"
+          }
+        },
+        "title": "InvestigationRuntimeProvenance",
+        "type": "object"
+      },
+      "InvestigationSourceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "legalBasis": {
+            "enum": [
+              "publicDomain",
+              "licensed",
+              "consent",
+              "analystAuthorized"
+            ],
+            "title": "Legalbasis",
+            "type": "string"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "publishedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publishedat"
+          },
+          "publisherUrl": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisherurl"
+          },
+          "redistributionPolicy": {
+            "enum": [
+              "prohibited",
+              "metadataOnly",
+              "permitted"
+            ],
+            "title": "Redistributionpolicy",
+            "type": "string"
+          },
+          "retentionDays": {
+            "default": 30,
+            "description": "S3 lifecycle eligibility tier, not a guaranteed physical-deletion deadline",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Retentiondays",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "legalBasis",
+          "redistributionPolicy"
+        ],
+        "title": "InvestigationSourceInput",
+        "type": "object"
+      },
+      "InvestigationSourceResponse": {
+        "additionalProperties": false,
+        "description": "Immutable source-lineage projection for the analyst report.",
+        "properties": {
+          "collectedAt": {
+            "format": "date-time",
+            "title": "Collectedat",
+            "type": "string"
+          },
+          "legalBasis": {
+            "enum": [
+              "publicDomain",
+              "licensed",
+              "consent",
+              "analystAuthorized"
+            ],
+            "title": "Legalbasis",
+            "type": "string"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "mediaSha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mediasha256"
+          },
+          "publishedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publishedat"
+          },
+          "publisherUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisherurl"
+          },
+          "purgeAfter": {
+            "description": "Exact-version janitor target for the pinned source asset",
+            "format": "date-time",
+            "title": "Purgeafter",
+            "type": "string"
+          },
+          "redistributionPolicy": {
+            "enum": [
+              "prohibited",
+              "metadataOnly",
+              "permitted"
+            ],
+            "title": "Redistributionpolicy",
+            "type": "string"
+          },
+          "retentionDays": {
+            "description": "S3 lifecycle eligibility tier, not a guaranteed physical-deletion deadline",
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Retentiondays",
+            "type": "integer"
+          },
+          "sourceRecordId": {
+            "format": "uuid",
+            "title": "Sourcerecordid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sourceRecordId",
+          "collectedAt",
+          "legalBasis",
+          "redistributionPolicy",
+          "retentionDays",
+          "purgeAfter"
+        ],
+        "title": "InvestigationSourceResponse",
+        "type": "object"
+      },
+      "InvestigationStepListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/InvestigationStepResponse"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "InvestigationStepListResponse",
+        "type": "object"
+      },
+      "InvestigationStepResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "completedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completedat"
+          },
+          "costMicrounits": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Costmicrounits"
+          },
+          "entropyAfter": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entropyafter"
+          },
+          "entropyBefore": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entropybefore"
+          },
+          "inputEvidenceIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Inputevidenceids",
+            "type": "array"
+          },
+          "kind": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Kind",
+            "type": "string"
+          },
+          "latencyMs": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latencyms"
+          },
+          "modelDigest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modeldigest"
+          },
+          "outputEvidenceIds": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Outputevidenceids",
+            "type": "array"
+          },
+          "peakMemoryMb": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peakmemorymb"
+          },
+          "policyDecision": {
+            "$ref": "#/components/schemas/PolicyDecisionResponse"
+          },
+          "promptDigest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promptdigest"
+          },
+          "sequence": {
+            "minimum": 1.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "approved",
+              "rejected"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "stepId": {
+            "format": "uuid",
+            "title": "Stepid",
+            "type": "string"
+          },
+          "tool": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Tool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stepId",
+          "sequence",
+          "kind",
+          "tool",
+          "state",
+          "inputEvidenceIds",
+          "outputEvidenceIds",
+          "modelDigest",
+          "promptDigest",
+          "latencyMs",
+          "peakMemoryMb",
+          "costMicrounits",
+          "policyDecision",
+          "entropyBefore",
+          "entropyAfter",
+          "startedAt",
+          "completedAt"
+        ],
+        "title": "InvestigationStepResponse",
+        "type": "object"
+      },
+      "InvestigationSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "abstained": {
+            "title": "Abstained",
+            "type": "boolean"
+          },
+          "calibratedConfidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibratedconfidence"
+          },
+          "connectivityPolicy": {
+            "enum": [
+              "local",
+              "textOnly",
+              "approvedCrops",
+              "connected"
+            ],
+            "title": "Connectivitypolicy",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "investigationId": {
+            "format": "uuid",
+            "title": "Investigationid",
+            "type": "string"
+          },
+          "jobId": {
+            "format": "uuid",
+            "title": "Jobid",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "geolocateProvenance",
+              "damageChange"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "projectId": {
+            "format": "uuid",
+            "title": "Projectid",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "awaitingUpload",
+              "queued",
+              "preprocessing",
+              "investigating",
+              "needsReview",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "title": "Updatedat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "investigationId",
+          "projectId",
+          "jobId",
+          "name",
+          "kind",
+          "connectivityPolicy",
+          "status",
+          "abstained",
+          "calibratedConfidence",
+          "createdAt",
+          "updatedAt"
+        ],
+        "title": "InvestigationSummary",
+        "type": "object"
+      },
+      "InvestigationVideoInput": {
+        "additionalProperties": false,
+        "description": "Month-one investigation media bound, measured again by the worker.",
+        "properties": {
+          "contentType": {
+            "title": "Contenttype",
+            "type": "string"
+          },
+          "durationSeconds": {
+            "maximum": 180.0,
+            "minimum": 30.0,
+            "title": "Durationseconds",
+            "type": "number"
+          },
+          "fileName": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "sizeBytes": {
+            "minimum": 1.0,
+            "title": "Sizebytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "fileName",
+          "contentType",
+          "sizeBytes",
+          "durationSeconds"
+        ],
+        "title": "InvestigationVideoInput",
+        "type": "object"
+      },
       "JobState": {
         "enum": [
           "AWAITING_UPLOAD",
@@ -2029,6 +3527,65 @@
         "title": "JobSummary",
         "type": "object"
       },
+      "KeyframeListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/KeyframeResponse"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "KeyframeListResponse",
+        "type": "object"
+      },
+      "KeyframeResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BoundingBox"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "title": "Createdat",
+            "type": "string"
+          },
+          "evidenceId": {
+            "format": "uuid",
+            "title": "Evidenceid",
+            "type": "string"
+          },
+          "frameTimeMs": {
+            "minimum": 0.0,
+            "title": "Frametimems",
+            "type": "integer"
+          },
+          "observation": {
+            "$ref": "#/components/schemas/EvidenceObservation"
+          }
+        },
+        "required": [
+          "evidenceId",
+          "frameTimeMs",
+          "observation",
+          "bbox",
+          "createdAt"
+        ],
+        "title": "KeyframeResponse",
+        "type": "object"
+      },
       "ManifestArtifacts": {
         "properties": {
           "audioEvents": {
@@ -2124,6 +3681,52 @@
           "artifacts"
         ],
         "title": "ManifestResponse",
+        "type": "object"
+      },
+      "PolicyDecisionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "decidedAt": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedat"
+          },
+          "decidedByPrincipalId": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedbyprincipalid"
+          },
+          "decision": {
+            "enum": [
+              "pending",
+              "approved",
+              "rejected",
+              "notRequired"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision",
+          "decidedByPrincipalId",
+          "decidedAt"
+        ],
+        "title": "PolicyDecisionResponse",
         "type": "object"
       },
       "ProjectPatch": {
@@ -2448,6 +4051,635 @@
         "summary": "Get Browser Deliverable Content",
         "tags": [
           "browser-app"
+        ]
+      }
+    },
+    "/api/app/v1/investigations": {
+      "get": {
+        "operationId": "listBrowserInvestigations",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Browser Investigations",
+        "tags": [
+          "browser-investigations"
+        ]
+      },
+      "post": {
+        "operationId": "createBrowserInvestigation",
+        "parameters": [
+          {
+            "description": "Organization-scoped safe-retry key for this browser write",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "description": "Organization-scoped safe-retry key for this browser write",
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvestigationCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationCreateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "examples": {
+                  "modeUnavailable": {
+                    "summary": "The requested investigation mode is not implemented",
+                    "value": {
+                      "code": "investigation_mode_unavailable",
+                      "detail": "This beta build supports only local geolocation and provenance investigations.",
+                      "instance": "/api/app/v1/investigations",
+                      "requestId": "00000000-0000-0000-0000-000000000000",
+                      "retryable": false,
+                      "status": 422,
+                      "title": "Investigation mode unavailable",
+                      "type": "https://api.instadescribe.com/problems/investigation_mode_unavailable"
+                    }
+                  }
+                },
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "maximum": 599,
+                      "minimum": 400,
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "format": "uri",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "instance",
+                    "code",
+                    "requestId",
+                    "retryable"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request validation failed or the requested investigation kind and connectivity policy are unavailable in this build"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Browser Investigation",
+        "tags": [
+          "browser-investigations"
+        ]
+      }
+    },
+    "/api/app/v1/investigations/{investigation_id}": {
+      "get": {
+        "operationId": "getBrowserInvestigation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "investigation_id",
+            "required": true,
+            "schema": {
+              "title": "Investigation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Browser Investigation",
+        "tags": [
+          "browser-investigations"
+        ]
+      }
+    },
+    "/api/app/v1/investigations/{investigation_id}/beliefs": {
+      "get": {
+        "operationId": "listBrowserInvestigationBeliefs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "investigation_id",
+            "required": true,
+            "schema": {
+              "title": "Investigation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BeliefSnapshotListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Browser Investigation Beliefs",
+        "tags": [
+          "browser-investigations"
+        ]
+      }
+    },
+    "/api/app/v1/investigations/{investigation_id}/cancel": {
+      "post": {
+        "operationId": "cancelBrowserInvestigation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "investigation_id",
+            "required": true,
+            "schema": {
+              "title": "Investigation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Organization-scoped safe-retry key for this browser write",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "description": "Organization-scoped safe-retry key for this browser write",
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "maximum": 599,
+                      "minimum": 400,
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "format": "uri",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "instance",
+                    "code",
+                    "requestId",
+                    "retryable"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Browser Investigation",
+        "tags": [
+          "browser-investigations"
+        ]
+      }
+    },
+    "/api/app/v1/investigations/{investigation_id}/decision": {
+      "post": {
+        "operationId": "finalizeBrowserInvestigation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "investigation_id",
+            "required": true,
+            "schema": {
+              "title": "Investigation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Organization-scoped safe-retry key for this browser write",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "description": "Organization-scoped safe-retry key for this browser write",
+              "maxLength": 255,
+              "minLength": 1,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalystDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalystDecisionResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "maximum": 599,
+                      "minimum": 400,
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "format": "uri",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "instance",
+                    "code",
+                    "requestId",
+                    "retryable"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Finalize Browser Investigation",
+        "tags": [
+          "browser-investigations"
+        ]
+      }
+    },
+    "/api/app/v1/investigations/{investigation_id}/evidence": {
+      "get": {
+        "operationId": "listBrowserInvestigationEvidence",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "investigation_id",
+            "required": true,
+            "schema": {
+              "title": "Investigation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Browser Investigation Evidence",
+        "tags": [
+          "browser-investigations"
+        ]
+      }
+    },
+    "/api/app/v1/investigations/{investigation_id}/keyframes": {
+      "get": {
+        "operationId": "listBrowserInvestigationKeyframes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "investigation_id",
+            "required": true,
+            "schema": {
+              "title": "Investigation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KeyframeListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Browser Investigation Keyframes",
+        "tags": [
+          "browser-investigations"
+        ]
+      }
+    },
+    "/api/app/v1/investigations/{investigation_id}/report": {
+      "get": {
+        "operationId": "getBrowserInvestigationReport",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "investigation_id",
+            "required": true,
+            "schema": {
+              "title": "Investigation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationReportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Browser Investigation Report",
+        "tags": [
+          "browser-investigations"
+        ]
+      }
+    },
+    "/api/app/v1/investigations/{investigation_id}/steps": {
+      "get": {
+        "operationId": "listBrowserInvestigationSteps",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "investigation_id",
+            "required": true,
+            "schema": {
+              "title": "Investigation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationStepListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Browser Investigation Steps",
+        "tags": [
+          "browser-investigations"
         ]
       }
     },
@@ -3132,13 +5364,52 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "detail": {
+                      "type": "string"
+                    },
+                    "instance": {
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "type": "string"
+                    },
+                    "retryable": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "maximum": 599,
+                      "minimum": 400,
+                      "type": "integer"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "format": "uri",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                    "instance",
+                    "code",
+                    "requestId",
+                    "retryable"
+                  ],
+                  "type": "object"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Request validation failed"
           }
         },
         "security": [

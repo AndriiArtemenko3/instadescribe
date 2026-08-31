@@ -19,6 +19,7 @@ from app.models import (
     AuditEvent,
     Deliverable,
     IdempotencyRecord,
+    Investigation,
     Job,
     JobEvent,
     OrganizationJobCapacity,
@@ -83,6 +84,7 @@ def _job(
     status: JobState,
     *,
     created_at: datetime | None = None,
+    workflow_kind: str = "audio_description",
 ) -> Job:
     project = Project(
         organization_id=PORTFOLIO_ORGANIZATION_ID,
@@ -92,6 +94,7 @@ def _job(
     session.flush()
     job = Job(
         organization_id=PORTFOLIO_ORGANIZATION_ID,
+        workflow_kind=workflow_kind,
         project_id=project.id,
         pipeline_revision="maintenance-test",
         status=status.value,
@@ -101,6 +104,57 @@ def _job(
     session.add(job)
     session.flush()
     return job
+
+
+@requires_db
+def test_upload_expiry_atomically_cancels_investigation_aggregate(db_engine):
+    now = datetime.now(UTC)
+    with Session(db_engine) as session:
+        job = _job(
+            session,
+            JobState.AWAITING_UPLOAD,
+            created_at=now - timedelta(hours=25),
+            workflow_kind="video_investigation",
+        )
+        investigation = Investigation(
+            organization_id=job.organization_id,
+            job_id=job.id,
+            kind="geolocate_provenance",
+            connectivity_policy="local",
+            status="awaiting_upload",
+            model_provenance={"executedLocally": False},
+            runtime_provenance={},
+        )
+        session.add(investigation)
+        reserve_job_media(session, job, estimated_seconds=30)
+        session.add(
+            Asset(
+                organization_id=job.organization_id,
+                job_id=job.id,
+                asset_type="source_video",
+                status="awaiting_upload",
+                object_key=(f"uploads/orgs/{job.organization_id}/jobs/{job.id}/source/input.mp4"),
+                content_type="video/mp4",
+                size_bytes=1024,
+                purge_after=now + timedelta(days=7),
+            )
+        )
+        session.commit()
+        job_id = job.id
+        investigation_id = investigation.id
+
+    with Session(db_engine) as session:
+        assert expire_awaiting_uploads(session, now=now, batch_size=10) == 1
+
+    with Session(db_engine) as session:
+        assert session.get(Job, job_id).status == JobState.CANCELLED.value
+        assert session.get(Investigation, investigation_id).status == "cancelled"
+        assert (
+            session.scalar(
+                sa.select(sa.func.count()).select_from(Asset).where(Asset.job_id == job_id)
+            )
+            == 0
+        )
 
 
 @requires_db

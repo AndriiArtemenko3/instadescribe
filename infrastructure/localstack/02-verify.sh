@@ -7,6 +7,8 @@ set -euo pipefail
 BUCKET="instascribe-media"
 QUEUE="instascribe-work"
 DLQ="instascribe-work-dlq"
+INVESTIGATION_QUEUE="instadescribe-investigation"
+INVESTIGATION_DLQ="instadescribe-investigation-dlq"
 
 # Bucket exists.
 awslocal s3api head-bucket --bucket "$BUCKET" >/dev/null 2>&1
@@ -64,6 +66,45 @@ expected = [
 assert rules == expected, f"CORS mismatch:\nactual:   {rules}\nexpected: {expected}"
 PY
 
+# Lifecycle must retain the 30-day untagged fallback and every exact
+# investigation tag tier for both current and noncurrent versions.
+LIFECYCLE_JSON=$(awslocal s3api get-bucket-lifecycle-configuration --bucket "$BUCKET")
+export LIFECYCLE_JSON
+python3 <<'PY'
+import json
+import os
+
+tag_key = "instadescribe-retention-days"
+rules = json.loads(os.environ["LIFECYCLE_JSON"])["Rules"]
+by_id = {rule["ID"]: rule for rule in rules}
+expected_ids = {"expire-abandoned-uploads"} | {
+    f"expire-investigation-source-{days}d" for days in range(1, 31)
+}
+assert set(by_id) == expected_ids, (
+    f"lifecycle IDs: {sorted(by_id)} != {sorted(expected_ids)}"
+)
+
+fallback = by_id["expire-abandoned-uploads"]
+assert fallback["Status"] == "Enabled", fallback
+assert fallback["Filter"] == {"Prefix": "uploads/"}, fallback
+assert fallback["Expiration"]["Days"] == 30, fallback
+assert fallback["NoncurrentVersionExpiration"]["NoncurrentDays"] == 30, fallback
+assert fallback["AbortIncompleteMultipartUpload"]["DaysAfterInitiation"] == 1, fallback
+
+for days in range(1, 31):
+    rule = by_id[f"expire-investigation-source-{days}d"]
+    assert rule["Status"] == "Enabled", rule
+    assert rule["Filter"] == {
+        "And": {
+            "Prefix": "uploads/orgs/",
+            "Tags": [{"Key": tag_key, "Value": str(days)}],
+        }
+    }, rule
+    assert rule["Expiration"]["Days"] == days, rule
+    assert rule["NoncurrentVersionExpiration"]["NoncurrentDays"] == days, rule
+    assert "AbortIncompleteMultipartUpload" not in rule, rule
+PY
+
 # Queues exist; work queue carries the exact visibility + redrive contract.
 DLQ_URL=$(awslocal sqs get-queue-url --queue-name "$DLQ" --output text --query QueueUrl)
 DLQ_ARN=$(awslocal sqs get-queue-attributes --queue-url "$DLQ_URL" \
@@ -87,4 +128,61 @@ assert redrive["deadLetterTargetArn"] == expected_arn, (
 )
 PY
 
-echo "[g1-verify] ASSERTED OK: bucket=$BUCKET versioning=Enabled cors=exact queue=$QUEUE dlq=$DLQ visibility=1800 redrive=maxReceiveCount:3"
+# The new investigation queue must be isolated yet carry the same bounded
+# at-least-once retry policy.  This check never mutates the legacy pair.
+INVESTIGATION_DLQ_URL=$(awslocal sqs get-queue-url \
+  --queue-name "$INVESTIGATION_DLQ" --output text --query QueueUrl)
+INVESTIGATION_DLQ_ARN=$(awslocal sqs get-queue-attributes \
+  --queue-url "$INVESTIGATION_DLQ_URL" --attribute-names QueueArn \
+  --output text --query "Attributes.QueueArn")
+INVESTIGATION_DLQ_ATTRS_JSON=$(awslocal sqs get-queue-attributes \
+  --queue-url "$INVESTIGATION_DLQ_URL" \
+  --attribute-names MessageRetentionPeriod SqsManagedSseEnabled RedriveAllowPolicy)
+INVESTIGATION_QUEUE_URL=$(awslocal sqs get-queue-url \
+  --queue-name "$INVESTIGATION_QUEUE" --output text --query QueueUrl)
+INVESTIGATION_QUEUE_ARN=$(awslocal sqs get-queue-attributes \
+  --queue-url "$INVESTIGATION_QUEUE_URL" --attribute-names QueueArn \
+  --output text --query "Attributes.QueueArn")
+INVESTIGATION_ATTRS_JSON=$(awslocal sqs get-queue-attributes \
+  --queue-url "$INVESTIGATION_QUEUE_URL" \
+  --attribute-names VisibilityTimeout MessageRetentionPeriod ReceiveMessageWaitTimeSeconds SqsManagedSseEnabled RedrivePolicy)
+export INVESTIGATION_ATTRS_JSON
+export INVESTIGATION_DLQ_ATTRS_JSON
+export EXPECTED_INVESTIGATION_DLQ_ARN="$INVESTIGATION_DLQ_ARN"
+export EXPECTED_INVESTIGATION_QUEUE_ARN="$INVESTIGATION_QUEUE_ARN"
+python3 <<'PY'
+import json
+import os
+
+attrs = json.loads(os.environ["INVESTIGATION_ATTRS_JSON"])["Attributes"]
+assert attrs["VisibilityTimeout"] == "1800", (
+    f"investigation VisibilityTimeout: {attrs['VisibilityTimeout']}"
+)
+assert attrs["MessageRetentionPeriod"] == "345600", attrs
+assert attrs["ReceiveMessageWaitTimeSeconds"] == "20", attrs
+assert attrs["SqsManagedSseEnabled"] == "true", attrs
+redrive = json.loads(attrs["RedrivePolicy"])
+assert redrive["maxReceiveCount"] == "3", (
+    f"investigation maxReceiveCount: {redrive['maxReceiveCount']}"
+)
+expected_arn = os.environ["EXPECTED_INVESTIGATION_DLQ_ARN"]
+assert redrive["deadLetterTargetArn"] == expected_arn, (
+    f"investigation DLQ ARN: {redrive['deadLetterTargetArn']} != {expected_arn}"
+)
+
+dlq_attrs = json.loads(os.environ["INVESTIGATION_DLQ_ATTRS_JSON"])["Attributes"]
+assert dlq_attrs["MessageRetentionPeriod"] == "1209600", dlq_attrs
+assert dlq_attrs["SqsManagedSseEnabled"] == "true", dlq_attrs
+allow = json.loads(dlq_attrs["RedriveAllowPolicy"])
+assert allow == {
+    "redrivePermission": "byQueue",
+    "sourceQueueArns": [os.environ["EXPECTED_INVESTIGATION_QUEUE_ARN"]],
+}, allow
+PY
+
+if [ "$QUEUE_URL" = "$INVESTIGATION_QUEUE_URL" ]; then
+  echo "[g1-verify] FAIL: workflow queues unexpectedly resolve to one URL" >&2
+  exit 1
+fi
+
+echo "[g1-verify] ASSERTED OK: bucket=$BUCKET versioning=Enabled cors=exact retention_tiers=1..30 legacy_queue=$QUEUE investigation_queue=$INVESTIGATION_QUEUE visibility=1800 redrive=maxReceiveCount:3"

@@ -38,6 +38,10 @@ def _repo(root: Path) -> Path:
         "services/worker/Dockerfile": "FROM x\n",
         "services/worker/requirements.txt": "x==1\n",
         "services/worker/requirements.in": "x\n",
+        "packages/investigation-core/LICENSE": "Apache License\nVersion 2.0\n",
+        "packages/investigation-core/src/instadescribe_investigation_core/__init__.py": (
+            '__version__ = "0.1.0"\n'
+        ),
         "services/api/Dockerfile": "FROM x\n",
         "services/api/requirements.txt": "x==1\n",
         "services/api/requirements.in": "x\n",
@@ -66,6 +70,22 @@ def _repo(root: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
     return root
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "packages/investigation-core/LICENSE",
+        "packages/investigation-core/src/instadescribe_investigation_core/__init__.py",
+    ],
+)
+def test_worker_digest_binds_investigation_core_and_nested_license(tmp_path, relative_path):
+    repo = _repo(tmp_path)
+    before = production_source_digest(repo, "worker")
+
+    (repo / relative_path).write_text("changed required investigation core input\n")
+
+    assert production_source_digest(repo, "worker") != before
 
 
 @pytest.mark.parametrize("service", ["worker", "api"])

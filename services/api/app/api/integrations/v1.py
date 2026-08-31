@@ -164,6 +164,46 @@ def _project_body(project: Project) -> dict[str, Any]:
     }
 
 
+def _project_is_on_audio_description_surface() -> sa.ColumnElement[bool]:
+    """Keep investigation-only projects out of the stable Integration API.
+
+    Empty projects remain visible because the Integration API can create a
+    project before its first audio-description job.  A project with jobs is
+    visible only when at least one of them belongs to the legacy/public
+    audio-description workflow.
+    """
+
+    any_job = sa.exists(
+        sa.select(1).where(
+            Job.organization_id == Project.organization_id,
+            Job.project_id == Project.id,
+        )
+    )
+    audio_description_job = sa.exists(
+        sa.select(1).where(
+            Job.organization_id == Project.organization_id,
+            Job.project_id == Project.id,
+            Job.workflow_kind == "audio_description",
+        )
+    )
+    return sa.or_(~any_job, audio_description_job)
+
+
+def _job_lookup_conditions(
+    job_id: uuid.UUID,
+    organization_id: uuid.UUID,
+    *,
+    allow_video_investigation: bool,
+) -> list[sa.ColumnElement[bool]]:
+    conditions: list[sa.ColumnElement[bool]] = [
+        Job.id == job_id,
+        Project.organization_id == organization_id,
+    ]
+    if not allow_video_investigation:
+        conditions.append(Job.workflow_kind == "audio_description")
+    return conditions
+
+
 def _organization_slug(db: Session, organization_id: uuid.UUID) -> str:
     slug = db.execute(
         sa.select(Organization.slug).where(Organization.id == organization_id)
@@ -368,7 +408,10 @@ def list_projects(
 ) -> dict[str, Any]:
     require_scope(principal, "projects:read")
     decoded = decode_cursor(cursor)
-    statement = sa.select(Project).where(Project.organization_id == principal.organization_id)
+    statement = sa.select(Project).where(
+        Project.organization_id == principal.organization_id,
+        _project_is_on_audio_description_surface(),
+    )
     if decoded is not None:
         statement = statement.where(
             sa.tuple_(Project.created_at, Project.id)
@@ -457,6 +500,7 @@ def get_project(
             sa.select(Project).where(
                 Project.id == parsed,
                 Project.organization_id == principal.organization_id,
+                _project_is_on_audio_description_surface(),
             )
         ).scalar_one_or_none()
     except SQLAlchemyError:
@@ -515,6 +559,7 @@ def patch_project(
             sa.select(Project).where(
                 Project.id == parsed,
                 Project.organization_id == principal.organization_id,
+                _project_is_on_audio_description_surface(),
             )
         ).scalar_one_or_none()
     except SQLAlchemyError:
@@ -666,6 +711,7 @@ def create_job_for_principal(
                 sa.select(Project).where(
                     Project.id == payload.project.id,
                     Project.organization_id == principal.organization_id,
+                    _project_is_on_audio_description_surface(),
                 )
             ).scalar_one_or_none()
             if project is None:
@@ -881,7 +927,10 @@ def _list_jobs(
     statement = (
         sa.select(Job)
         .join(Project, Job.project_id == Project.id)
-        .where(Project.organization_id == principal.organization_id)
+        .where(
+            Project.organization_id == principal.organization_id,
+            Job.workflow_kind == "audio_description",
+        )
     )
     if project_id is not None:
         statement = statement.where(Job.project_id == project_id)
@@ -943,6 +992,7 @@ def list_project_jobs(
             sa.select(Project.id).where(
                 Project.id == parsed,
                 Project.organization_id == principal.organization_id,
+                _project_is_on_audio_description_surface(),
             )
         ).scalar_one_or_none()
     except SQLAlchemyError:
@@ -978,6 +1028,7 @@ def create_job(
             sa.select(Project).where(
                 Project.id == parsed,
                 Project.organization_id == principal.organization_id,
+                _project_is_on_audio_description_surface(),
             )
         ).scalar_one_or_none()
     except SQLAlchemyError:
@@ -1357,6 +1408,8 @@ def complete_upload_for_principal(
     principal: PrincipalContext,
     db: Session,
     idempotency_key: str,
+    *,
+    allow_video_investigation: bool = False,
 ) -> JSONResponse:
     parsed = _parse_id(jobId, "Job")
     replay = _existing_replay(db, principal, request, idempotency_key, {})
@@ -1367,8 +1420,11 @@ def complete_upload_for_principal(
             sa.select(Job)
             .join(Project, Job.project_id == Project.id)
             .where(
-                Job.id == parsed,
-                Project.organization_id == principal.organization_id,
+                *_job_lookup_conditions(
+                    parsed,
+                    principal.organization_id,
+                    allow_video_investigation=allow_video_investigation,
+                )
             )
         ).scalar_one_or_none()
     except SQLAlchemyError:
@@ -1439,8 +1495,11 @@ def complete_upload_for_principal(
                     sa.select(Job)
                     .join(Project, Job.project_id == Project.id)
                     .where(
-                        Job.id == parsed,
-                        Project.organization_id == principal.organization_id,
+                        *_job_lookup_conditions(
+                            parsed,
+                            principal.organization_id,
+                            allow_video_investigation=allow_video_investigation,
+                        )
                     )
                 ).scalar_one()
                 persist_verified_source(
@@ -1471,6 +1530,7 @@ def complete_upload_for_principal(
             parsed,
             db,
             principal.organization_id,
+            allow_video_investigation=allow_video_investigation,
         )
         status = legacy_response.status_code if isinstance(legacy_response, JSONResponse) else 202
         db.expire_all()
@@ -1478,8 +1538,11 @@ def complete_upload_for_principal(
             sa.select(Job)
             .join(Project, Job.project_id == Project.id)
             .where(
-                Job.id == parsed,
-                Project.organization_id == principal.organization_id,
+                *_job_lookup_conditions(
+                    parsed,
+                    principal.organization_id,
+                    allow_video_investigation=allow_video_investigation,
+                )
             )
         ).scalar_one()
     except HTTPException as exc:
@@ -1553,8 +1616,11 @@ def cancel_job_for_principal(
             sa.select(Job)
             .join(Project, Job.project_id == Project.id)
             .where(
-                Job.id == parsed,
-                Project.organization_id == principal.organization_id,
+                *_job_lookup_conditions(
+                    parsed,
+                    principal.organization_id,
+                    allow_video_investigation=False,
+                )
             )
         ).scalar_one_or_none()
     except SQLAlchemyError:
@@ -1627,8 +1693,11 @@ def cancel_job_for_principal(
                 sa.select(Job)
                 .join(Project, Job.project_id == Project.id)
                 .where(
-                    Job.id == parsed,
-                    Project.organization_id == principal.organization_id,
+                    *_job_lookup_conditions(
+                        parsed,
+                        principal.organization_id,
+                        allow_video_investigation=False,
+                    )
                 )
             ).scalar_one_or_none()
             if job is None:
@@ -1705,8 +1774,11 @@ def get_job_for_principal(
             sa.select(Job)
             .join(Project, Job.project_id == Project.id)
             .where(
-                Job.id == parsed,
-                Project.organization_id == principal.organization_id,
+                *_job_lookup_conditions(
+                    parsed,
+                    principal.organization_id,
+                    allow_video_investigation=False,
+                )
             )
         ).scalar_one_or_none()
     except SQLAlchemyError:

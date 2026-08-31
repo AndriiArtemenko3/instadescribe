@@ -14,6 +14,39 @@ from botocore.config import Config as BotoConfig
 
 from app.core.config import get_settings
 
+INVESTIGATION_RETENTION_TAG_KEY = "instadescribe-retention-days"
+_MIN_INVESTIGATION_RETENTION_DAYS = 1
+_MAX_INVESTIGATION_RETENTION_DAYS = 30
+
+
+def investigation_retention_tag(retention_days: int) -> str:
+    """Return canonical S3 POST Object ``tagging`` XML for one retention tier."""
+
+    if isinstance(retention_days, bool) or not (
+        _MIN_INVESTIGATION_RETENTION_DAYS <= retention_days <= _MAX_INVESTIGATION_RETENTION_DAYS
+    ):
+        raise ValueError("investigation retention days must be between 1 and 30")
+    return (
+        "<Tagging><TagSet><Tag>"
+        f"<Key>{INVESTIGATION_RETENTION_TAG_KEY}</Key>"
+        f"<Value>{retention_days}</Value>"
+        "</Tag></TagSet></Tagging>"
+    )
+
+
+def _validate_investigation_retention_tag(retention_tag: str) -> None:
+    """Fail closed unless ``retention_tag`` is the canonical 1..30 day tier."""
+
+    canonical_tags = {
+        investigation_retention_tag(days)
+        for days in range(
+            _MIN_INVESTIGATION_RETENTION_DAYS,
+            _MAX_INVESTIGATION_RETENTION_DAYS + 1,
+        )
+    }
+    if retention_tag not in canonical_tags:
+        raise ValueError("invalid or noncanonical investigation retention tag")
+
 
 def canonical_source_key(job_id: str, sanitized_filename: str) -> str:
     return f"uploads/{job_id}/source/{sanitized_filename}"
@@ -97,11 +130,21 @@ def generate_upload_post(
     content_type: str,
     *,
     max_bytes: int | None = None,
+    retention_tag: str | None = None,
 ) -> dict:
-    """Presigned POST with exact bucket/key/type, 1..max size, SSE, short expiry."""
+    """Presigned POST with exact bucket/key/type, 1..max size, SSE, short expiry.
+
+    ``retention_tag`` is optional so the stable audio-description upload
+    contract remains byte-for-byte untagged.  When supplied by the Browser
+    investigation route it is both a form field and an exact policy
+    condition.  Reusing the same presigned form can therefore create another
+    S3 version, but it cannot create an untagged or differently-tiered one.
+    """
     settings = get_settings()
     if max_bytes is not None and max_bytes < 1:
         raise ValueError("upload limit must be positive")
+    if retention_tag is not None:
+        _validate_investigation_retention_tag(retention_tag)
     upload_limit = (
         settings.max_upload_bytes
         if max_bytes is None
@@ -118,6 +161,11 @@ def generate_upload_post(
         ["eq", "$x-amz-server-side-encryption", "AES256"],
         ["content-length-range", 1, upload_limit],
     ]
+    if retention_tag is not None:
+        # POST Object tagging is an XML multipart form field (unlike the
+        # x-amz-tagging header used by PUT Object).
+        fields["tagging"] = retention_tag
+        conditions.append(["eq", "$tagging", retention_tag])
     post = _presign_client().generate_presigned_post(
         Bucket=settings.media_bucket,
         Key=object_key,

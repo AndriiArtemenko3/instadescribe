@@ -4,6 +4,7 @@ AWS services required."""
 
 import json
 import shutil
+import socket
 import subprocess
 import uuid
 from pathlib import Path
@@ -17,6 +18,7 @@ from instadescribe_contracts.environment import (
 )
 from instadescribe_worker.config import WorkerSettings
 from instadescribe_worker.failures import FailureCode, JobFailure
+from instadescribe_worker.investigation import validate_investigation_media_duration
 from instadescribe_worker.media_validation import validate_media
 from instadescribe_worker.source import download_source
 from instadescribe_worker.workspace import build_workspace, write_job_files
@@ -41,7 +43,9 @@ def test_missing_database_url_fails_fast(monkeypatch):
         {"INSTADESCRIBE_LONG_POLL_SECS": "21"},  # > SQS maximum
         {"INSTADESCRIBE_SUBPROCESS_TIMEOUT_SECS": "5"},  # under the floor
         {"INSTADESCRIBE_WORK_QUEUE_URL": "ftp://nope"},
+        {"INSTADESCRIBE_INVESTIGATION_QUEUE_URL": "ftp://nope"},
         {"INSTADESCRIBE_WORK_QUEUE": ""},
+        {"INSTADESCRIBE_INVESTIGATION_QUEUE": ""},
         {"INSTADESCRIBE_MAX_DURATION_SECS": "0"},
         {"INSTADESCRIBE_RENDER_TIMEOUT_SECS": "299"},
         {
@@ -66,8 +70,99 @@ def test_exact_g12_provider_allowlist_cannot_be_widened_by_environment(monkeypat
     for hostile in ("PROVIDER_ALLOWLIST", "provider_allowlist", "INSTADESCRIBE_PROVIDER_ALLOWLIST"):
         monkeypatch.setenv(hostile, '["fake","openai"]')
     settings = WorkerSettings()
-    assert settings.provider_allowlist == ("fake", "openai")
-    assert PROVIDER_ALLOWLIST == ("fake", "openai")
+    assert settings.provider_allowlist == ("fake", "openai", "local")
+    assert PROVIDER_ALLOWLIST == ("fake", "openai", "local")
+
+
+def test_local_investigation_runtime_is_loopback_only_and_bounded(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@127.0.0.1:5432/x")
+    monkeypatch.setenv("INSTADESCRIBE_PROVIDER", "local")
+    monkeypatch.setenv("INSTADESCRIBE_MAX_ATTEMPTS", "3")
+
+    settings = WorkerSettings()
+
+    assert settings.investigation_runtime == "ollama"
+    assert settings.investigation_model == "qwen3.5:4b"
+    assert settings.investigation_ollama_url == "http://127.0.0.1:11434"
+    assert 4 <= settings.investigation_batch_size <= 8
+    assert settings.investigation_max_keyframes <= 24
+    assert settings.investigation_image_long_edge <= 1024
+    assert settings.investigation_queue_name == "instadescribe-investigation"
+    assert settings.max_attempts == 3
+
+    for unsafe in (
+        "https://127.0.0.1:11434",
+        "http://ollama.internal:11434",
+        "http://user:password@localhost:11434",
+        "http://localhost:11434/api/chat",
+    ):
+        monkeypatch.setenv("INSTADESCRIBE_OLLAMA_URL", unsafe)
+        with pytest.raises(ValidationError):
+            WorkerSettings()
+
+
+def test_fixture_investigation_runtime_requires_local_provider(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@127.0.0.1:5432/x")
+    monkeypatch.setenv("INSTADESCRIBE_INVESTIGATION_RUNTIME", "fixture")
+
+    with pytest.raises(ValidationError):
+        WorkerSettings()
+
+    monkeypatch.setenv("INSTADESCRIBE_PROVIDER", "local")
+    monkeypatch.setenv("INSTADESCRIBE_MAX_ATTEMPTS", "3")
+    with pytest.raises(ValidationError):
+        WorkerSettings()
+
+    monkeypatch.setenv("INSTADESCRIBE_TEST_FIXTURE_RUNTIME", "true")
+    assert WorkerSettings().investigation_runtime == "fixture"
+
+    monkeypatch.setenv("INSTADESCRIBE_DEPLOYMENT_TIER", "beta")
+    with pytest.raises(ValidationError):
+        WorkerSettings()
+
+
+def test_queue_names_and_explicit_urls_must_be_distinct(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@127.0.0.1:5432/x")
+    monkeypatch.setenv("INSTADESCRIBE_INVESTIGATION_QUEUE", "instascribe-work")
+    with pytest.raises(ValidationError):
+        WorkerSettings()
+
+    monkeypatch.setenv("INSTADESCRIBE_INVESTIGATION_QUEUE", "instadescribe-investigation")
+    shared = "http://127.0.0.1:4566/000000000000/shared"
+    monkeypatch.setenv("INSTADESCRIBE_WORK_QUEUE_URL", shared)
+    monkeypatch.setenv("INSTADESCRIBE_INVESTIGATION_QUEUE_URL", shared)
+    with pytest.raises(ValidationError):
+        WorkerSettings()
+
+    monkeypatch.delenv("INSTADESCRIBE_WORK_QUEUE_URL")
+    monkeypatch.setenv(
+        "INSTADESCRIBE_INVESTIGATION_QUEUE_URL",
+        "http://127.0.0.1:4566/000000000000/instascribe-work",
+    )
+    with pytest.raises(ValidationError):
+        WorkerSettings()
+
+
+def test_worker_queue_selection_is_provider_scoped(monkeypatch):
+    from instadescribe_worker import consumer
+    from instadescribe_worker.config import reset_worker_settings
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@127.0.0.1:5432/x")
+    monkeypatch.setenv("INSTADESCRIBE_WORK_QUEUE_URL", "http://queue.test/audio")
+    monkeypatch.setenv("INSTADESCRIBE_INVESTIGATION_QUEUE_URL", "http://queue.test/investigation")
+    reset_worker_settings()
+    consumer.reset_worker_caches()
+    try:
+        assert consumer._queue_url() == "http://queue.test/audio"
+
+        monkeypatch.setenv("INSTADESCRIBE_PROVIDER", "local")
+        monkeypatch.setenv("INSTADESCRIBE_MAX_ATTEMPTS", "3")
+        reset_worker_settings()
+        consumer.reset_worker_caches()
+        assert consumer._queue_url() == "http://queue.test/investigation"
+    finally:
+        reset_worker_settings()
+        consumer.reset_worker_caches()
 
 
 def test_render_liveness_defaults_are_bounded_and_independent(monkeypatch):
@@ -455,6 +550,19 @@ def test_real_fixture_passes_validation_and_reports_measured_duration():
     assert 100 < duration < 130  # the committed 120s clip — MEASURED, not declared
 
 
+@pytest.mark.parametrize("duration", [30.0, 180.0])
+def test_investigation_authoritative_duration_accepts_exact_mvp_boundaries(duration):
+    validate_investigation_media_duration(duration)
+
+
+@pytest.mark.parametrize("duration", [1.0, 29.999, 180.001, 300.0, 3600.0])
+def test_investigation_authoritative_duration_rejects_declared_hint_bypass(duration):
+    with pytest.raises(JobFailure, match="between 30s and 180s") as exc:
+        validate_investigation_media_duration(duration)
+    assert exc.value.code == FailureCode.INVALID_MEDIA
+    assert exc.value.retryable is False
+
+
 def test_corrupt_and_empty_media_are_non_retryable(tmp_path):
     corrupt = tmp_path / "corrupt.mp4"
     corrupt.write_bytes(b"not a video at all" * 10)
@@ -466,6 +574,31 @@ def test_corrupt_and_empty_media_are_non_retryable(tmp_path):
     empty.write_bytes(b"")
     with pytest.raises(JobFailure):
         validate_media(empty, "video/mp4", 300, source_name="empty.mp4")
+
+
+def test_hostile_playlist_cannot_make_ffprobe_open_a_network_protocol(tmp_path):
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        listener.bind(("127.0.0.1", 0))
+    except PermissionError:
+        listener.close()
+        pytest.skip("test sandbox forbids binding a loopback listener")
+    listener.listen(1)
+    listener.settimeout(0.15)
+    port = listener.getsockname()[1]
+    hostile = tmp_path / "hostile.mp4"
+    hostile.write_text(
+        "#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:10,\n"
+        f"http://127.0.0.1:{port}/segment.ts\n#EXT-X-ENDLIST\n",
+        encoding="utf-8",
+    )
+    try:
+        with pytest.raises(JobFailure):
+            validate_media(hostile, "video/mp4", 300, source_name="hostile.mp4")
+        with pytest.raises(TimeoutError):
+            listener.accept()
+    finally:
+        listener.close()
 
 
 @pytest.mark.skipif(not FIXTURE.exists(), reason="Sintel fixture missing")
@@ -1042,7 +1175,9 @@ def test_once_mode_runs_one_analysis_render_and_preview_cycle(monkeypatch, capsy
     from instadescribe_worker import main as main_mod
 
     calls = []
-    settings = SimpleNamespace(worker_id="combined-test", long_poll_secs=0, grace_secs=1)
+    settings = SimpleNamespace(
+        worker_id="combined-test", long_poll_secs=0, grace_secs=1, provider="fake"
+    )
     monkeypatch.setattr(main_mod, "get_worker_settings", lambda: settings)
     monkeypatch.setattr(
         main_mod,
@@ -1071,11 +1206,45 @@ def test_once_mode_runs_one_analysis_render_and_preview_cycle(monkeypatch, capsy
     assert '"preview_outcome": "empty"' in output
 
 
+def test_local_once_mode_never_claims_audio_render_or_preview(monkeypatch, capsys):
+    from instadescribe_worker import main as main_mod
+
+    calls = []
+    settings = SimpleNamespace(
+        worker_id="investigation-test", long_poll_secs=0, grace_secs=1, provider="local"
+    )
+    monkeypatch.setattr(main_mod, "get_worker_settings", lambda: settings)
+    monkeypatch.setattr(main_mod.signal, "signal", lambda *_args: None)
+    monkeypatch.setattr(
+        main_mod,
+        "run_once",
+        lambda received: calls.append(("investigation", received)) or "success",
+    )
+    monkeypatch.setattr(
+        main_mod,
+        "run_render_once",
+        lambda _received: pytest.fail("local worker claimed an AD render"),
+    )
+    monkeypatch.setattr(
+        main_mod,
+        "run_preview_once",
+        lambda _received: pytest.fail("local worker claimed an AD preview"),
+    )
+
+    assert main_mod.main(["--once"]) == 0
+    assert calls == [("investigation", settings)]
+    output = capsys.readouterr().out
+    assert '"render_outcome": "workflow_skipped"' in output
+    assert '"preview_outcome": "workflow_skipped"' in output
+
+
 def test_once_shutdown_during_analysis_skips_render_and_preview(monkeypatch, capsys):
     from instadescribe_worker import main as main_mod
 
     calls = []
-    settings = SimpleNamespace(worker_id="shutdown-test", long_poll_secs=0, grace_secs=1)
+    settings = SimpleNamespace(
+        worker_id="shutdown-test", long_poll_secs=0, grace_secs=1, provider="fake"
+    )
     monkeypatch.setattr(main_mod, "get_worker_settings", lambda: settings)
     monkeypatch.setattr(main_mod.signal, "signal", lambda *_args: None)
 
@@ -1107,7 +1276,9 @@ def test_continuous_shutdown_during_render_skips_preview_and_next_cycle(monkeypa
     from instadescribe_worker import main as main_mod
 
     calls = []
-    settings = SimpleNamespace(worker_id="shutdown-test", long_poll_secs=0, grace_secs=1)
+    settings = SimpleNamespace(
+        worker_id="shutdown-test", long_poll_secs=0, grace_secs=1, provider="fake"
+    )
     monkeypatch.setattr(main_mod, "get_worker_settings", lambda: settings)
     monkeypatch.setattr(main_mod.signal, "signal", lambda *_args: None)
     monkeypatch.setattr(

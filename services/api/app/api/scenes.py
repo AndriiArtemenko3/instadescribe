@@ -77,6 +77,8 @@ def _load_editable(
         raise _http_error(503, "persistence_unavailable", "persistence unavailable") from None
     if row is None:  # absent job OR a project ID supplied as a job ID
         raise _http_error(404, "not_found", "not found")
+    if row.Job.workflow_kind != "audio_description":
+        raise _http_error(404, "not_found", "not found")
     if row.Job.status != JobState.READY_FOR_REVIEW.value:
         raise _http_error(409, "job_not_editable", "job is not editable in its current state")
     return row

@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.browser.investigations import router as browser_investigations_router
 from app.api.browser.invitations import router as browser_invitations_router
 from app.api.browser.v1 import router as browser_v1_router
 from app.api.integrations.lifecycle import router as integrations_lifecycle_router
@@ -66,6 +67,7 @@ app.include_router(integrations_v1_router)
 app.include_router(integrations_lifecycle_router)
 app.include_router(browser_v1_router)
 app.include_router(browser_invitations_router)
+app.include_router(browser_investigations_router)
 
 
 def _json_safe(value):

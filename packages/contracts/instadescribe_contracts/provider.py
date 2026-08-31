@@ -8,10 +8,20 @@ without claiming or mutating it.
 
 from typing import Final, Literal
 
-ProviderName = Literal["fake", "openai"]
+ProviderName = Literal["fake", "openai", "local"]
 
-PROVIDER_ALLOWLIST: Final[tuple[ProviderName, ...]] = ("fake", "openai")
-PROVIDER_MAX_ATTEMPTS: Final[dict[ProviderName, int]] = {"fake": 3, "openai": 1}
+PROVIDER_ALLOWLIST: Final[tuple[ProviderName, ...]] = ("fake", "openai", "local")
+PROVIDER_MAX_ATTEMPTS: Final[dict[ProviderName, int]] = {
+    "fake": 3,
+    "openai": 1,
+    "local": 3,
+}
+
+# Month-one local investigation media envelope. The Browser declaration is an
+# admission hint only; the worker re-applies these bounds to ffprobe's
+# authoritative duration before quota reconciliation or model work.
+INVESTIGATION_MVP_MIN_DURATION_SECS: Final[int] = 30
+INVESTIGATION_MVP_MAX_DURATION_SECS: Final[int] = 180
 
 # The owner-approved G12 real-provider smoke is deliberately limited to a
 # rights-cleared clip no longer than two minutes.

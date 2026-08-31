@@ -78,6 +78,9 @@ services:
       INSTADESCRIBE_API_KEY_PEPPER: local-development-api-key-pepper-000000000000
       # Immutable server-supplied provenance; 'dev' locally by design.
       INSTADESCRIBE_PIPELINE_REVISION: dev
+      # Match both authenticated browser upload forms; the server remains the
+      # authority and presigned policies still bind each declared exact size.
+      INSTADESCRIBE_MAX_UPLOAD_BYTES: "1073741824"
       INSTADESCRIBE_MEDIA_BUCKET: instascribe-media
       # Split S3 endpoint views (configuration lands at G1; first SDK consumer is G3):
       # container-internal SDK calls vs browser-visible presigned URLs — presigned
@@ -86,6 +89,9 @@ services:
       INSTADESCRIBE_S3_ENDPOINT_PUBLIC: http://localhost:4566
       INSTADESCRIBE_S3_FORCE_PATH_STYLE: "1"
       INSTADESCRIBE_SQS_ENDPOINT_INTERNAL: http://localstack:4566
+      # New workflow queue; the existing instascribe-work resource remains
+      # the audio-description rollback path.
+      INSTADESCRIBE_INVESTIGATION_QUEUE_URL: http://localstack:4566/000000000000/instadescribe-investigation
       AWS_DEFAULT_REGION: eu-west-2
       # LocalStack's canonical dummy values — placeholders, not real credentials.
       AWS_ACCESS_KEY_ID: test
@@ -133,6 +139,42 @@ services:
       INSTADESCRIBE_PIPELINE_REVISION: dev
       AWS_DEFAULT_REGION: eu-west-2
       # LocalStack's canonical dummy values — placeholders, not real credentials.
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Deterministic local investigation consumer for CI/development evidence.
+  # It deliberately uses the fixture observer. Live Ollama remains unavailable
+  # until a parent-validated candidate-proposal handshake is implemented.
+  investigation-worker-fixture:
+    profiles: ["investigation-worker-fixture"]
+    image: ${INSTADESCRIBE_WORKER_IMAGE:-instadescribe-worker:g5}
+    build:
+      context: .
+      dockerfile: services/worker/Dockerfile
+      target: production
+    platform: linux/amd64
+    cpus: 2
+    mem_limit: 8g
+    environment:
+      DATABASE_URL: postgresql+psycopg://instascribe:local-dev-only@postgres:5432/instascribe
+      INSTADESCRIBE_PROVIDER: local
+      INSTADESCRIBE_MAX_ATTEMPTS: "3"
+      INSTADESCRIBE_INVESTIGATION_RUNTIME: fixture
+      INSTADESCRIBE_TEST_FIXTURE_RUNTIME: "true"
+      INSTADESCRIBE_INVESTIGATION_QUEUE_URL: http://localstack:4566/000000000000/instadescribe-investigation
+      INSTADESCRIBE_MEDIA_BUCKET: instascribe-media
+      INSTADESCRIBE_S3_ENDPOINT_INTERNAL: http://localstack:4566
+      INSTADESCRIBE_SQS_ENDPOINT_INTERNAL: http://localstack:4566
+      INSTADESCRIBE_WORKER_ID: investigation-fixture-local-1
+      INSTADESCRIBE_PIPELINE_REVISION: dev
+      AWS_DEFAULT_REGION: eu-west-2
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
     depends_on:

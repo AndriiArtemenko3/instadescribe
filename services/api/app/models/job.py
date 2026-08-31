@@ -33,6 +33,12 @@ class Job(Base):
         default=PORTFOLIO_ORGANIZATION_ID,
         server_default=sa.text(f"'{PORTFOLIO_ORGANIZATION_ID}'::uuid"),
     )
+    workflow_kind: Mapped[str] = mapped_column(
+        sa.String(40),
+        nullable=False,
+        default="audio_description",
+        server_default=sa.text("'audio_description'"),
+    )
     project_id: Mapped[uuid.UUID] = mapped_column(sa.Uuid, nullable=False)
     client_reference: Mapped[str | None] = mapped_column(sa.String(255))
     # Immutable, server-supplied provenance — clients may never choose it.
@@ -115,6 +121,10 @@ class Job(Base):
             name="uq_jobs_organization_id_client_reference",
         ),
         sa.CheckConstraint(f"status IN ({_STATUS_LIST})", name="status_valid"),
+        sa.CheckConstraint(
+            "workflow_kind IN ('audio_description', 'video_investigation')",
+            name="workflow_kind_valid",
+        ),
         sa.CheckConstraint("progress >= 0 AND progress <= 100", name="progress_range"),
         sa.CheckConstraint("enqueue_attempt_count >= 0", name="enqueue_attempts_nonneg"),
         sa.CheckConstraint(
