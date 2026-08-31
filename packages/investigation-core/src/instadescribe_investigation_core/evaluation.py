@@ -1,0 +1,181 @@
+"""Small, dependency-free metrics for investigation evaluation fixtures."""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from statistics import median
+
+
+@dataclass(frozen=True, slots=True)
+class RankedPrediction:
+    ranked_candidate_ids: tuple[str, ...]
+    truth_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class GeolocationPrediction:
+    predicted_latitude: float
+    predicted_longitude: float
+    truth_latitude: float
+    truth_longitude: float
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationPrediction:
+    probabilities: Mapping[str, float]
+    truth_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class RetrievalPrediction:
+    ranked_ids: tuple[str, ...]
+    relevant_ids: frozenset[str]
+
+
+def _mean(values: Sequence[float]) -> float:
+    if not values:
+        raise ValueError("at least one example is required")
+    return sum(values) / len(values)
+
+
+def top_k_accuracy(examples: Sequence[RankedPrediction], *, k: int) -> float:
+    if k <= 0:
+        raise ValueError("k must be positive")
+    return _mean(
+        [float(example.truth_id in example.ranked_candidate_ids[:k]) for example in examples]
+    )
+
+
+def haversine_km(
+    latitude_a: float,
+    longitude_a: float,
+    latitude_b: float,
+    longitude_b: float,
+) -> float:
+    for latitude in (latitude_a, latitude_b):
+        if not -90 <= latitude <= 90:
+            raise ValueError("latitude must be between -90 and 90")
+    for longitude in (longitude_a, longitude_b):
+        if not -180 <= longitude <= 180:
+            raise ValueError("longitude must be between -180 and 180")
+    radius_km = 6371.0088
+    phi_a, phi_b = math.radians(latitude_a), math.radians(latitude_b)
+    delta_phi = math.radians(latitude_b - latitude_a)
+    delta_lambda = math.radians(longitude_b - longitude_a)
+    value = (
+        math.sin(delta_phi / 2) ** 2
+        + math.cos(phi_a) * math.cos(phi_b) * math.sin(delta_lambda / 2) ** 2
+    )
+    return radius_km * 2 * math.atan2(math.sqrt(value), math.sqrt(max(0, 1 - value)))
+
+
+def median_geolocation_error_km(examples: Sequence[GeolocationPrediction]) -> float:
+    if not examples:
+        raise ValueError("at least one example is required")
+    return median(
+        haversine_km(
+            example.predicted_latitude,
+            example.predicted_longitude,
+            example.truth_latitude,
+            example.truth_longitude,
+        )
+        for example in examples
+    )
+
+
+def _validated_probabilities(example: CalibrationPrediction) -> dict[str, float]:
+    probabilities = dict(example.probabilities)
+    if example.truth_id not in probabilities:
+        raise ValueError("truth_id must be represented in probabilities")
+    if not probabilities:
+        raise ValueError("probabilities must not be empty")
+    if any(not math.isfinite(value) or not 0 <= value <= 1 for value in probabilities.values()):
+        raise ValueError("probabilities must be finite and between zero and one")
+    if abs(sum(probabilities.values()) - 1) > 1e-9:
+        raise ValueError("probabilities must sum to one")
+    return probabilities
+
+
+def multiclass_brier_score(examples: Sequence[CalibrationPrediction]) -> float:
+    scores: list[float] = []
+    for example in examples:
+        probabilities = _validated_probabilities(example)
+        scores.append(
+            sum(
+                (probability - float(candidate_id == example.truth_id)) ** 2
+                for candidate_id, probability in probabilities.items()
+            )
+        )
+    return _mean(scores)
+
+
+def expected_calibration_error(
+    examples: Sequence[CalibrationPrediction],
+    *,
+    bins: int = 10,
+) -> float:
+    if bins <= 0:
+        raise ValueError("bins must be positive")
+    if not examples:
+        raise ValueError("at least one example is required")
+    buckets: list[list[tuple[float, float]]] = [[] for _ in range(bins)]
+    for example in examples:
+        probabilities = _validated_probabilities(example)
+        predicted_id, confidence = max(probabilities.items(), key=lambda item: (item[1], item[0]))
+        bucket = min(int(confidence * bins), bins - 1)
+        buckets[bucket].append((confidence, float(predicted_id == example.truth_id)))
+    total = len(examples)
+    return sum(
+        len(bucket)
+        / total
+        * abs(
+            _mean([confidence for confidence, _ in bucket])
+            - _mean([correct for _, correct in bucket])
+        )
+        for bucket in buckets
+        if bucket
+    )
+
+
+def retrieval_recall_at_k(examples: Sequence[RetrievalPrediction], *, k: int) -> float:
+    if k <= 0:
+        raise ValueError("k must be positive")
+    recalls: list[float] = []
+    for example in examples:
+        if not example.relevant_ids:
+            raise ValueError("each retrieval example needs at least one relevant ID")
+        if len(example.ranked_ids) != len(set(example.ranked_ids)):
+            raise ValueError("ranked retrieval IDs must be unique")
+        retrieved = set(example.ranked_ids[:k])
+        recalls.append(len(retrieved & example.relevant_ids) / len(example.relevant_ids))
+    return _mean(recalls)
+
+
+def ndcg_at_k(examples: Sequence[RetrievalPrediction], *, k: int) -> float:
+    if k <= 0:
+        raise ValueError("k must be positive")
+    scores: list[float] = []
+    for example in examples:
+        if not example.relevant_ids:
+            raise ValueError("each retrieval example needs at least one relevant ID")
+        if len(example.ranked_ids) != len(set(example.ranked_ids)):
+            raise ValueError("ranked retrieval IDs must be unique")
+        dcg = sum(
+            float(candidate_id in example.relevant_ids) / math.log2(index + 2)
+            for index, candidate_id in enumerate(example.ranked_ids[:k])
+        )
+        ideal_count = min(k, len(example.relevant_ids))
+        ideal = sum(1 / math.log2(index + 2) for index in range(ideal_count))
+        scores.append(dcg / ideal)
+    return _mean(scores)
+
+
+def binary_precision(labels: Sequence[tuple[bool, bool]]) -> float:
+    """Return precision from (predicted_positive, actually_positive) pairs."""
+
+    predicted = [actual for selected, actual in labels if selected]
+    if not predicted:
+        return 0
+    return sum(predicted) / len(predicted)

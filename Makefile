@@ -5,12 +5,19 @@
 	cloud-venv migrate g2-verify cloud-test \
 	g5-test g5-build g5-smoke \
 	g8-build g8-image-proof g8-memtest smoke-local \
-	g8-api-build g8-api-image-proof g8-acceptance
+	g8-api-build g8-api-image-proof g8-acceptance \
+	investigation-core-sync investigation-core-lint investigation-core-test \
+	investigation-core-build investigation-core-check
 
 # The CURRENT (G8-rebuilt) production worker image tag — G8 acceptance
 # targets run exactly this image; plain compose keeps the pinned G5 tag.
 G8_WORKER_IMAGE ?= instadescribe-worker:g8
 G8_API_IMAGE ?= instadescribe-api:g8
+
+# Autonomous Apache-2.0 baseline. The fixed directory keeps product and open
+# package tooling from sharing environments or accidentally resolving imports.
+INVESTIGATION_CORE_DIR := packages/investigation-core
+INVESTIGATION_CORE_DIST ?= dist/investigation-core
 
 # Local compose DSN (placeholder credential, loopback-bound — never production).
 LOCAL_DATABASE_URL ?= postgresql+psycopg://instascribe:local-dev-only@127.0.0.1:5432/instascribe
@@ -46,6 +53,31 @@ test:  ## Run the Python and web test suites
 lint:  ## Ruff (Python) + ESLint (web)
 	ruff check .
 	cd App && npm run lint
+
+investigation-core-sync:  ## Sync the locked Python 3.12 environment for the Apache investigation core
+	uv sync --directory $(INVESTIGATION_CORE_DIR) --locked --extra dev \
+		--python 3.12 --no-python-downloads
+
+investigation-core-lint: investigation-core-sync  ## Ruff-check and format-check the standalone investigation core
+	uv run --directory $(INVESTIGATION_CORE_DIR) --locked --extra dev \
+		ruff check src tests
+	uv run --directory $(INVESTIGATION_CORE_DIR) --locked --extra dev \
+		ruff format --check src tests
+
+investigation-core-test: investigation-core-sync  ## Run the locked investigation-core tests under Python 3.12
+	uv run --directory $(INVESTIGATION_CORE_DIR) --locked --extra dev \
+		python -c 'import sys; assert sys.version_info[:2] == (3, 12), sys.version'
+	uv run --directory $(INVESTIGATION_CORE_DIR) --locked --extra dev \
+		pytest tests -q
+
+investigation-core-build:  ## Build the standalone investigation-core wheel and sdist under Python 3.12
+	uv build $(INVESTIGATION_CORE_DIR) --out-dir $(INVESTIGATION_CORE_DIST) \
+		--clear --python 3.12 --no-python-downloads
+
+investigation-core-check: investigation-core-lint investigation-core-test investigation-core-build  ## Full open-core test, package and license-boundary gate
+	$(INVESTIGATION_CORE_DIR)/.venv/bin/python scripts/verify_investigation_core_dist.py \
+		--source $(INVESTIGATION_CORE_DIR) --dist $(INVESTIGATION_CORE_DIST)
+	node scripts/check-license-boundaries.mjs
 
 g1-up:  ## Start the G1 local cloud stack (PostgreSQL + LocalStack + health-only API)
 	docker compose up --build -d --wait
