@@ -1,16 +1,18 @@
 # InstaDescribe architecture
 
-> **Status boundary:** The API-first beta described here is implemented in the
-> repository and locally verified. The static legacy Cloud Core v0.1 frontend
-> remains published, but its API/readiness is currently unavailable as of
-> `2026-08-29`. Beta cutover, live Cognito/S3/webhook/provider canaries and npm
-> publication are pending.
+> **Status boundary:** the repository contains an implemented API-first
+> audio-description platform and a parallel video-investigation foundation. The
+> investigation proof is a deterministic, no-model Browser-to-report fixture. An
+> investigation workspace, live multimodal inference, retrieval, persisted replay,
+> benchmark results and deployment are not present capabilities.
 
-InstaDescribe is an asynchronous, human-in-the-loop system for producing audio
-description. FastAPI is the sole business authority. PostgreSQL owns identity,
-tenant boundaries and state; S3 owns versioned media bytes; SQS transports work;
-Python workers perform media and AI processing. Node.js supplies clients and the web
-delivery boundary without duplicating domain rules.
+InstaDescribe is an asynchronous, human-in-the-loop video platform with two explicit
+workflows. Observable Video Intelligence is the current product direction;
+audio description remains a retained legacy workflow and engineering foundation.
+FastAPI is the sole business authority. PostgreSQL owns identity, tenant boundaries
+and state; S3 owns versioned media bytes; SQS transports work; and Python workers
+perform bounded media processing. Node.js supplies clients and the web delivery
+boundary without duplicating domain rules.
 
 ## System context
 
@@ -49,6 +51,20 @@ flowchart LR
 Media transfer bypasses both FastAPI and Next.js after authorization. Clients send
 bytes directly to or from S3 through short-lived, constrained, version-pinned signed
 contracts.
+
+## Parallel investigation foundation
+
+`Job.workflow_kind` separates `video_investigation` from `audio_description`.
+Investigation creation is Browser-API-only and currently accepts only
+`geolocateProvenance + local`. It persists source lineage, evidence, ordered steps,
+belief snapshots and the analyst's final decision; routes work to a dedicated queue;
+and validates an isolated child result under the existing lease/fence boundary. The
+stable Integration API, SDK and CLI intentionally hide investigation jobs.
+
+The executable end-to-end path uses deterministic supportive and abstention fixtures
+with no model or public-web call. See
+[Video-investigation foundation](./investigation-architecture.md) for the current
+domain, routes, trust boundary and explicit non-capabilities.
 
 ## Ownership boundaries
 
@@ -188,13 +204,16 @@ Astro marketing site is not part of this migration.
 
 | Shape | Status | Boundary |
 |---|---|---|
-| Cloud Core v0.1 | Historical deployment evidence; static frontend still published | Vite + shared portfolio token + FastAPI/PostgreSQL/S3/SQS; API/readiness unavailable as of `2026-08-29` |
+| Cloud Core v0.1 | Historical deployment evidence only | Legacy Vite + shared portfolio token + FastAPI/PostgreSQL/S3/SQS; no current availability or support claim |
 | API-first B2B beta | Implemented and locally verified | Next.js/BFF, Cognito, organizations, service keys, Integration API, SDK/CLI, full review/render/delivery and webhooks |
+| Video-investigation foundation | Implemented and fixture-verified in source | Browser API, durable evidence domain, dedicated queue, fenced worker and strict isolated result boundary; no investigation workspace, live model, retrieval, replay, benchmark or deployment |
 | Isolated beta AWS stack | Defined but not cut over | Live restore, identity, upload, webhook and real-provider canaries remain release gates |
 | npm SDK/CLI | Source complete, unpublished | Publication requires an approved immutable tag and post-publish tarball E2E |
 
 The system is not presented as production-ready and does not claim live B2B
 customers, billing, an SLA or legal accessibility compliance.
 
-See [Architecture evolution](./architecture-evolution.md) for the direct before/after
-comparison and [ADR-0010](./adr/0010-api-first-b2b-beta.md) for the decision record.
+See [Architecture evolution](./architecture-evolution.md) for the product sequence,
+[ADR-0010](./adr/0010-api-first-b2b-beta.md) for the API-first decision and
+[ADR-0011](./adr/0011-observable-video-intelligence.md) for the parallel
+investigation decision.

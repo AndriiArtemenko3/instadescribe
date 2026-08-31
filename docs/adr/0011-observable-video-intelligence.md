@@ -51,9 +51,31 @@ Browser creation must then return a bounded `422 investigation_mode_unavailable`
 In particular, `approvedCrops` describes a future human authorization boundary; it
 never authorizes network execution inside the open planner.
 
-This first delivery implements only the autonomous open package and its distribution
-and license gates. It does not implement or deploy the database, API, worker,
-Browser workspace, retrieval or model-runtime integration described above.
+The first delivery implemented only the autonomous open package and its distribution
+and license gates. The follow-on foundation described below implemented the durable
+product spine without expanding the available mode.
+
+## Implementation record
+
+As of `2026-08-31`, the repository implements:
+
+- `video_investigation` plus tenant-scoped Investigation, SourceRecord,
+  EvidenceItem, InvestigationStep, BeliefSnapshot and AnalystDecision persistence;
+- Browser create/list/get/cancel, evidence/keyframe/step/belief reads, final analyst
+  decision and report routes for `geolocateProvenance + local` only;
+- source version pinning, SHA-256 and retention metadata;
+- a dedicated queue, claim/reclaim/cancel fencing, a workspace-root-scoped
+  host-local inference lease and a bounded `python -I` child with parent-owned
+  strict result validation;
+- supportive and mandatory-abstention end-to-end fixtures with no model inference
+  or public-web request.
+
+The stable Integration API, SDK and CLI remain unchanged and hide investigation
+jobs. The worker rejects live Ollama execution before child launch until the
+parent-validated proposal handshake is implemented. The workspace, persisted
+replay, retrieval/geometric verification, damage/change pipeline, calibration,
+benchmark and deployment are not implemented capabilities in this revision. See
+[Video-investigation foundation](../investigation-architecture.md).
 
 ## Safety and data policy
 

@@ -5,8 +5,9 @@ the released identity, deployed boundary, verification evidence, measured result
 safe visual evidence where available, and known limitations.
 
 - [`v0.1-cloud-core.md`](./v0.1-cloud-core.md) — dated release evidence for the
-  historically deployed legacy AWS Cloud Core. Its static frontend remains
-  published, but API/readiness is unavailable as of `2026-08-29`.
+  historically deployed legacy AWS Cloud Core. It records an availability
+  observation captured on `2026-08-29`; it is not a current availability or support
+  claim.
 
 The API-first B2B beta has no release packet yet because its infrastructure cutover,
 live integration canaries and npm publication are still pending. Local implementation

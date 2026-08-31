@@ -2,12 +2,17 @@
 
 Thank you for taking the time to improve InstaDescribe.
 
-## Beta contribution policy
+## Contribution policy
 
 Issues, reproducible bug reports, architecture feedback and private security reports
 are welcome. External pull requests are not accepted during the beta. This keeps the
-source-available core's copyright and relicensing boundary unambiguous while the
-public API is stabilizing.
+BUSL product shell's copyright and relicensing boundary unambiguous while the public
+API is stabilizing.
+
+The repository is mixed-license: the autonomous investigation core is Apache-2.0,
+the SDK/CLI are MIT, and the product shell is BUSL-1.1. The current issue-first
+policy applies across those areas; a nested open-source license does not by itself
+change the maintainer's pull-request intake policy.
 
 Please open an issue before doing implementation work; unsolicited pull requests may
 be closed without review. The maintainer may revise this policy after the beta.
@@ -29,15 +34,19 @@ only non-confidential context.
 
 Keep documentation precise:
 
-- the API-first beta is implemented and locally verified, not yet deployed;
-- the static legacy Cloud Core v0.1 frontend remains published, but API/readiness
-  is unavailable as of `2026-08-29`;
+- the video-investigation foundation is implemented and fixture-verified, with no
+  model inference or public-web request in its end-to-end proof;
+- the investigation workspace, live model, retrieval, persisted replay, benchmark
+  and deployment are not implemented capabilities;
+- the audio-description API-first beta remains implemented and locally verified,
+  not evidence that the investigation product is deployed;
 - the SDK and CLI are source-complete but not yet published to npm;
-- the project is designed to support audio-description workflows and does not claim
-  legal WCAG compliance, production readiness, live customers, billing or an SLA.
+- the project does not claim investigation accuracy, legal WCAG compliance,
+  production readiness, live customers, billing or an SLA.
 
 ## Licensing
 
-The core is source-available under BUSL-1.1. The SDK and CLI are separately MIT.
-Opening an issue or sharing feedback does not grant additional rights. See
+The product shell is source-available under BUSL-1.1, the investigation baseline is
+Apache-2.0, and the SDK/CLI are MIT. Opening an issue or sharing feedback does not
+grant additional rights. See
 [LICENSING.md](./LICENSING.md) for the exact boundary.

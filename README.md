@@ -1,204 +1,213 @@
-# InstaDescribe
+# InstaDescribe — Observable Video Intelligence
 
-API-first, multi-tenant workflow for creating human-reviewed audio description
-and delivering accessible video assets from one asynchronous pipeline.
+Local-first infrastructure for turning permitted public video into
+evidence-backed location and provenance hypotheses that an analyst can inspect,
+challenge and finalize.
 
 [![CI](https://github.com/AndriiArtemenko3/instadescribe/actions/workflows/ci.yml/badge.svg)](https://github.com/AndriiArtemenko3/instadescribe/actions/workflows/ci.yml)
-[![Core: BUSL-1.1](https://img.shields.io/badge/core-BUSL--1.1-6f5bd3.svg)](./LICENSE)
-[![SDK + CLI: MIT](https://img.shields.io/badge/SDK%20%2B%20CLI-MIT-2ea44f.svg)](./LICENSING.md)
-[![OpenAPI 3.1](https://img.shields.io/badge/contract-OpenAPI%203.1-0f6fbd.svg)](./openapi/instadescribe-cloud-v1.json)
+[![Product shell: BUSL-1.1](https://img.shields.io/badge/product%20shell-BUSL--1.1-6f5bd3.svg)](./LICENSE)
+[![Investigation core: Apache-2.0](https://img.shields.io/badge/investigation%20core-Apache--2.0-2ea44f.svg)](./packages/investigation-core/LICENSE)
+[![SDK + CLI: MIT](https://img.shields.io/badge/SDK%20%2B%20CLI-MIT-0f6fbd.svg)](./LICENSING.md)
 
-> **Beta status:** The API-first beta architecture is implemented in this
-> repository and locally verified. The static legacy Cloud Core v0.1 frontend
-> remains published, but its API/readiness is currently unavailable as of
-> `2026-08-29`. Beta infrastructure cutover, live integration canaries and npm
-> publication are pending.
+> **Foundation status:** the repository implements the local
+> `geolocateProvenance` investigation contract and a deterministic, no-model
+> end-to-end fixture. The fixture crosses the Browser API, versioned upload,
+> dedicated queue, fenced worker, isolated child process, persistence and analyst
+> report boundary. It does not call a vision model or the public web. An
+> investigation workspace, live multimodal inference, connected retrieval,
+> persisted replay and public quality metrics are separate, gated milestones.
 
-![InstaDescribe human review workspace](./docs/assets/instadescribe-product-capture.png)
+[Investigation architecture](./docs/investigation-architecture.md) ·
+[Current platform architecture](./docs/architecture.md) ·
+[Decision record](./docs/adr/0011-observable-video-intelligence.md) ·
+[Open investigation core](./packages/investigation-core/README.md) ·
+[Licensing](./LICENSING.md) ·
+[Security](./SECURITY.md) ·
+[Engineering history](./docs/engineering-history.md)
 
-[Architecture](./docs/architecture.md) ·
-[Architecture evolution](./docs/architecture-evolution.md) ·
-[Engineering history](./docs/engineering-history.md) ·
-[Deterministic demo](#deterministic-demo) ·
-[OpenAPI](./openapi/instadescribe-cloud-v1.json) ·
-[SDK](./packages/sdk/README.md) ·
-[CLI](./packages/cli/README.md)
+## What is implemented
 
-## The product boundary
+InstaDescribe now has two explicit workflows. `video_investigation` is a parallel
+domain, not a relabeling of the retained `audio_description` pipeline.
 
-InstaDescribe turns a browser-only authoring pipeline into a service that a CMS,
-DAM, CI job or university media workflow can call. FastAPI remains the only owner
-of tenant isolation, quotas, idempotency and state transitions. Python workers own
-media and AI processing. Node.js has three bounded roles: the authenticated Next.js
-web application and thin BFF, the server-side TypeScript SDK, and the CLI.
+| Capability | Public status | Evidence in this repository |
+|---|---|---|
+| Open investigation baseline | Implemented | Typed source, evidence, belief, trace and strict-IPC contracts; correlation-aware fusion; entropy and abstention; heuristic frame ranking; local media inspection; JSONL trace export and evaluation primitives |
+| Investigation persistence | Implemented | Tenant-scoped Investigation, SourceRecord, EvidenceItem, InvestigationStep, BeliefSnapshot and AnalystDecision records, with source retention metadata and immutable media SHA-256 after validation |
+| Browser investigation API | Implemented | Create/list/get/cancel, upload completion, evidence/keyframe/step/belief reads, analyst finalization and report retrieval for `geolocateProvenance + local` |
+| Isolated execution path | Implemented | A dedicated investigation queue, worker leases and fencing, cancellation/reclaim behavior, a workspace-root-scoped host-local file lease and a bounded `python -I` child result boundary |
+| Supportive and abstaining journeys | Implemented as deterministic fixtures | Both paths cross FastAPI, direct versioned storage, SQS-compatible transport, the real worker and durable report state without model or public-web calls |
+| Analyst investigation workspace | Not implemented in the current `main` tree | The Browser API exists; the current Next.js product UI remains the audio-description workspace |
+| Live local multimodal inference | Gated next | Loopback adapter code is not an accepted end-to-end capability; the worker fails closed until a parent-validated proposal handshake and runtime/resource gates are complete |
+| Connected retrieval and geometric verification | Not implemented | No crop leaves the local boundary and no connected result can be presented as verified evidence |
+| Persisted replay | Not implemented | A committed deterministic fixture is test infrastructure, not persisted trace replay |
+| Investigation benchmark | Not reported | There are no public accuracy, calibration, retrieval, latency or memory claims |
+
+## Implemented investigation flow
 
 ```mermaid
 flowchart LR
-    EXT["CMS / DAM / CI"] --> CLIENTS["TypeScript SDK / CLI"]
-    CLIENTS --> INT["Integration API<br/>/v1"]
-    USER["Reviewer"] --> WEB["Next.js Web App<br/>thin BFF"]
-    WEB --> APP["App API<br/>/api/app/v1"]
-    INT --> CORE["FastAPI business core"]
-    APP --> CORE
-    CORE --> DATA["Organization-scoped<br/>PostgreSQL / S3 / SQS"]
-    DATA --> WORKERS["Python analysis + render workers"]
-    WORKERS --> REVIEW["Human review"]
-    REVIEW --> OUT["MP4 / MP3 / SRT / CSV / DOCX<br/>+ terminal webhook"]
+    CLIENT["Authorized Browser API client"] --> API["FastAPI\ntenant authority"]
+    API --> PG["PostgreSQL\ninvestigation records"]
+    API --> S3["Versioned object storage\nsource asset"]
+    API --> Q["Dedicated investigation queue"]
+    Q --> WORKER["Leased and fenced\nlocal worker"]
+    WORKER --> CHILD["Isolated strict-IPC child\ndeterministic fixture"]
+    CHILD --> CORE["Apache investigation core\nevidence, belief and trace"]
+    CORE --> WORKER
+    WORKER --> PG
+    PG --> API
+    API --> REPORT["Analyst decision\nand lineage report"]
 ```
 
-The stable external lifecycle is:
+The creation contract is deliberately narrow: `geolocateProvenance` with `local`
+connectivity. Unsupported investigation kinds or connectivity policies return
+`422 investigation_mode_unavailable` instead of entering a partial pipeline. The
+stable Integration API, SDK and CLI do not expose investigation jobs or commands.
 
-```text
-awaiting_upload → queued → processing → needs_review → rendering → completed
-                                      ↳ failed / cancelled
-```
+Here, `local` means that the investigation authorizes no public-internet retrieval.
+PostgreSQL, S3-compatible storage and SQS-compatible transport remain explicit
+infrastructure boundaries. The deterministic acceptance fixture makes no model or
+public-web request.
 
-Review mutations stay in the web application. An integration creates a job,
-uploads directly to private S3, waits for `needs_review`, sends a reviewer to the
-web UI, then consumes a terminal webhook and downloads a complete, checksummed
-five-format deliverable set.
+## Evidence, belief and analyst control
 
-## Engineering highlights
+The baseline keeps observations separate from conclusions. Evidence records retain
+their source/artifact identity, timecode, optional crop coordinates, reliability,
+verification state, polarity and correlation group. The belief engine counts a
+correlation group once; the current adapter conservatively groups observations from
+the same selected frame. Cross-frame deduplication of the same physical clue is not
+implemented.
 
-| Concern | Design |
+The transparent baseline is:
+
+$$
+z_h = \log \pi_h + \sum_g w_g s_g(h)
+$$
+
+$$
+p(h \mid E) = \mathrm{softmax}(z_h / T)
+$$
+
+Belief snapshots persist ranked candidates, normalized probabilities, entropy and
+an abstention decision. This posterior is not presented as calibrated: the public
+`calibratedConfidence` field remains empty until a rights-cleared benchmark supports
+that claim.
+
+An analyst must accept or reject every current evidence item before finalization. A
+non-abstaining report requires accepted evidence that supports a current candidate;
+otherwise the analyst records an explicit abstention and reason. Accepting an item
+for a report does not change its provenance-verification state.
+
+The step trace is an objective tool and event ledger with bounded inputs, outputs,
+policy decisions, digests and measured execution metadata when available. It is not
+raw chain-of-thought.
+
+## Failure behavior is part of the design
+
+| Condition | Result |
 |---|---|
-| Tenant isolation | Every Project and Job belongs to an Organization; repositories scope every read and write to the authenticated Principal, and foreign IDs resolve like absent IDs |
-| Safe retries | Required idempotency keys bind a request key to its payload for 24 hours; quota and active-job capacity are reserved transactionally |
-| Worker races | Database leases and fencing prevent cancelled or stale workers from publishing state or artifacts |
-| Human control | Every scene receives a reviewer decision; a zero-description result requires explicit confirmation |
-| Atomic delivery | MP4, MP3, SRT, CSV and DOCX remain internal until the entire checksum-verified set succeeds |
-| Notifications | State transitions and immutable webhook outbox events commit in the same transaction; delivery is signed and at least once |
-| Browser security | Cognito tokens stay server-side; the browser holds an opaque `__Host-` session cookie, while media transfers directly between browser and S3 |
+| Unsupported kind or connectivity policy | Reject creation with a bounded `422`; enqueue nothing |
+| Insufficient or conflicting evidence | Persist an abstaining belief state rather than manufacture a hypothesis |
+| Child changes source, identity, policy, priors or belief math | Reject the result at the parent-owned IPC boundary |
+| Worker loses its lease, is cancelled or becomes stale | Fencing prevents evidence or state publication |
+| Live runtime lacks the required trust handshake | Fail closed before launching the child |
+| Foreign or missing tenant identifier | Resolve through the same organization-scoped absence boundary |
 
-The detailed invariants and ownership boundaries live in
-[docs/architecture.md](./docs/architecture.md) and
-[ADR-0010](./docs/adr/0010-api-first-b2b-beta.md).
+## Run the open baseline
 
-## Deterministic demo
-
-The committed Sintel fixture exercises the editor without an API key, cloud
-account or paid provider call.
-
-Prerequisites: Node.js 22.19 or newer.
+Prerequisites: Python 3.12, `uv`, `make` and Node.js.
 
 ```bash
-npm ci
-npm run demo -w App
+make investigation-core-check
 ```
 
-Open the URL printed by Vite. The demo uses committed scene, transcript, poster,
-audio and export fixtures; it does not upload data or call a model provider.
-Sintel attribution is recorded in
-[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+This locked gate runs Ruff, the standalone package tests, wheel/sdist build,
+distribution verification and the nested-license boundary check. For a minimal
+offline runner and JSONL trace example, see
+[packages/investigation-core/README.md](./packages/investigation-core/README.md).
 
-## Integration surface
-
-The generated OpenAPI document is exported deterministically from FastAPI. The SDK
-exposes a hand-written ergonomic boundary rather than its generated transport.
-
-```ts
-import { InstaDescribe } from "@instadescribe/sdk";
-
-const client = new InstaDescribe({
-  baseUrl: "https://api.instadescribe.example",
-  appUrl: "https://app.instadescribe.example",
-  apiKey: process.env.INSTADESCRIBE_API_KEY!,
-});
-
-const submission = await client.jobs.submitFile({
-  filePath: "./lecture.mp4",
-  transcriptPath: "./lecture.vtt",
-  project: { name: "BIO101", externalId: "lecture-07" },
-});
-
-const ready = await client.jobs.wait(submission.jobId);
-console.log(client.reviewUrl(ready).href);
-```
-
-Equivalent CLI flow:
-
-```bash
-printf '%s' "$INSTADESCRIBE_API_KEY" | instadescribe auth login --key-stdin
-instadescribe create ./lecture.mp4 --project BIO101 --transcript ./lecture.vtt --wait
-instadescribe review JOB_ID --open
-instadescribe wait JOB_ID --until completed
-instadescribe download JOB_ID --output-dir ./accessible
-```
-
-The SDK and CLI source are complete in this repository but are not yet published
-to npm. Service keys never enter the browser or signed S3 requests.
-
-## Implementation status
-
-| Surface | Status |
-|---|---|
-| API-first beta source and local test coverage | Implemented and locally verified |
-| Multi-tenant FastAPI integration and browser APIs | Implemented locally; beta deployment pending |
-| Next.js App Router cutover | Implemented behind the browser cutover boundary; Vite remains the rollback build |
-| TypeScript SDK and CLI | Implemented in source; npm packages unpublished |
-| Public AWS Cloud Core v0.1 | Static legacy frontend published; API/readiness unavailable as of `2026-08-29`; release-time evidence is preserved separately |
-| Cognito/S3/webhook/provider live canary | Pending |
-| Customer beta, billing, SLA | Not started / out of beta scope |
-
-The legacy deployment is evidence of the asynchronous AWS foundation, not a claim
-that the B2B beta is deployed. Its bounded release record is preserved in the
-[Cloud Core v0.1 evidence packet](./docs/releases/v0.1-cloud-core.md).
-The history and privacy boundary for the future public branch is documented in
-[PUBLIC_SNAPSHOT.md](./PUBLIC_SNAPSHOT.md).
+The full Browser-to-report fixture is an integration acceptance test that requires
+the repository's disposable PostgreSQL and LocalStack environment. Its exact,
+reviewable journey is in
+[services/worker/tests/test_investigation_e2e_acceptance.py](./services/worker/tests/test_investigation_e2e_acceptance.py).
+It is test evidence, not a model-quality demo or a deployment claim.
 
 ## Repository map
 
 ```text
-App/                Next.js web app + Vite rollback/editor build
-services/api/       FastAPI business authority and public API boundaries
-services/worker/    SQS consumers and isolated analysis/render execution
-modular_pipeline/   Media, multimodal drafting, TTS and export pipeline
-packages/sdk/       MIT-licensed server-side TypeScript SDK
-packages/cli/       MIT-licensed Node.js CLI
-packages/contracts/ Shared Python queue/provider contracts
-openapi/            Deterministic FastAPI contract export
-migrations/         PostgreSQL/Alembic schema evolution
-infrastructure/     Terraform for legacy and isolated beta AWS resources
-docs/               Architecture, ADRs, evaluation and runbooks
+packages/investigation-core/ Apache-2.0 evidence, belief, trace, IPC and eval baseline
+services/api/                FastAPI tenancy, Browser and stable Integration APIs
+services/worker/             Fenced AD workers and dedicated investigation worker
+migrations/                  PostgreSQL schema, including the investigation domain
+App/                         Next.js product shell and retained AD editor/rollback build
+packages/sdk/                MIT TypeScript client for the stable Integration API
+packages/cli/                MIT CLI for the stable Integration API
+packages/contracts/          Shared BUSL queue and provider contracts
+modular_pipeline/            Retained audio-description media/ASR/TTS/export pipeline
+openapi/                     Deterministically exported API contracts
+infrastructure/              LocalStack and Terraform resource boundaries
+docs/                        Architecture, ADRs, evaluation and historical evidence
 ```
 
-## Evaluation evidence
+Useful starting points for a code review:
 
-An earlier formative evaluation involved 10 student participants over two days;
-9 were sighted. On a five-point scale, participants rated draft accuracy 4.4,
-usefulness 4.2 and trust 4.0. The study used an eyes-closed task as a proxy and did
-not involve professional describers, so it is product evidence, not a general claim
-about blind-user outcomes or standards compliance. Method and limitations are in
-[docs/evaluation.md](./docs/evaluation.md).
+- open contracts and belief math:
+  [`packages/investigation-core/src/instadescribe_investigation_core/`](./packages/investigation-core/src/instadescribe_investigation_core/);
+- Browser API contract:
+  [`services/api/app/api/browser/investigations.py`](./services/api/app/api/browser/investigations.py);
+- durable domain:
+  [`services/api/app/models/investigation.py`](./services/api/app/models/investigation.py) and
+  [`migrations/versions/0014_video_investigations.py`](./migrations/versions/0014_video_investigations.py);
+- process boundary:
+  [`services/worker/instadescribe_worker/investigation_executor.py`](./services/worker/instadescribe_worker/investigation_executor.py);
+- supportive and abstention acceptance:
+  [`services/worker/tests/test_investigation_e2e_acceptance.py`](./services/worker/tests/test_investigation_e2e_acceptance.py).
 
-InstaDescribe is designed to support audio-description authoring workflows. The
-repository does not claim legal WCAG compliance, production readiness, live B2B
-customers, billing or an SLA.
+## Mixed-license boundary
 
-## Development
+This is a public **mixed-license monorepo**, not an entirely open-source product.
 
-Useful local gates:
+| Area | License |
+|---|---|
+| `packages/investigation-core/**` | Apache License 2.0 |
+| `packages/sdk/**`, `packages/cli/**` | MIT |
+| Product shell, API, workers and remaining InstaDescribe-authored code | BUSL-1.1, subject to the exact exceptions and Change Date in the repository license documents |
+| Third-party code, media, fonts and model assets | Their upstream terms |
 
-```bash
-npm run build
-npm test
-npm run typecheck
-make test
-make lint
-```
+Read [LICENSING.md](./LICENSING.md) for the exact file-level boundary. The root
+BUSL license does not override the nested Apache and MIT package licenses.
 
-Cloud integration tests additionally require the repository's disposable
-PostgreSQL and LocalStack test environment. See the Makefile and runbooks for the
-bounded commands; never point migration tests at an application database.
+## Legacy: audio description
 
-## Licensing and contributions
+InstaDescribe began as a human-reviewed audio-description system. That history is
+preserved, including organization/RBAC foundations, direct media transfer,
+asynchronous jobs, worker fencing, FFmpeg/ASR/TTS, scene review, atomic deliverables,
+the stable Integration API and the MIT SDK/CLI.
 
-The product core is source-available under
-[Business Source License 1.1](./LICENSE), with an Apache-2.0 Change Date of
-`2030-08-29`. The SDK and CLI are separately open source under MIT. See
-[LICENSING.md](./LICENSING.md) for the exact boundary and
-[COMMERCIAL_LICENSE.md](./COMMERCIAL_LICENSE.md) for production-use inquiries.
+The existing Next.js/Vite editor and deterministic Sintel demo still exercise the
+audio-description workflow; they are not an investigation UI or evidence that a
+video-investigation model ran. See
+[Architecture evolution](./docs/architecture-evolution.md) and
+[Engineering history](./docs/engineering-history.md) for the migration story.
 
-Issues and private security reports are welcome. External pull requests are not
-accepted during the beta; see [CONTRIBUTING.md](./CONTRIBUTING.md) and
-[SECURITY.md](./SECURITY.md).
+## Data, safety and limitations
+
+- Use analyst uploads, clearly licensed or public-domain assets,
+  publisher-provided material, or design-partner uploads covered by written
+  permission.
+- Telegram-derived scraped data is excluded from the AI pipeline and evaluation
+  corpus without separate, confirmed permission.
+- Raw evaluation datasets stay outside Git. Commit only redistributable fixtures,
+  provenance manifests and aggregate results with documented limitations.
+- Face recognition, live tracking of people or units, weapon targeting and
+  operational-coordinate output for use of force are out of scope.
+- A model proposal is never ground truth, and a connected result—when that boundary
+  exists—must not become verified evidence automatically.
+- The repository does not claim production readiness, universal geolocation,
+  customer deployment, an SLA or investigation accuracy.
+
+Issues and private security reports are welcome. See
+[CONTRIBUTING.md](./CONTRIBUTING.md) and [SECURITY.md](./SECURITY.md). Do not put
+sensitive footage, source identities, credentials or private datasets in a public
+issue.
