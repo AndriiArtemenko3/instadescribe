@@ -24,9 +24,7 @@ from typing import Protocol, runtime_checkable
 
 from .models import ArtifactRef, Keyframe
 from .serialization import canonical_json
-from .vectors import cosine_similarity
-
-_MAX_EMBEDDING_DIMENSION = 4096
+from .vectors import cosine_similarity, validate_embedding
 
 
 def _validate_sha256(value: str, field_name: str) -> None:
@@ -41,17 +39,6 @@ def _validate_sha256(value: str, field_name: str) -> None:
 def _bounded_score(value: float, field_name: str) -> None:
     if not math.isfinite(value) or not 0 <= value <= 1:
         raise ValueError(f"{field_name} must be finite and between zero and one")
-
-
-def _validate_embedding(embedding: tuple[float, ...]) -> None:
-    if not isinstance(embedding, tuple):
-        raise ValueError("embedding must be a tuple of floats")
-    if not embedding or len(embedding) > _MAX_EMBEDDING_DIMENSION:
-        raise ValueError(f"embedding must have between 1 and {_MAX_EMBEDDING_DIMENSION} values")
-    if not all(math.isfinite(value) for value in embedding):
-        raise ValueError("embedding values must be finite")
-    if math.hypot(*embedding) == 0:
-        raise ValueError("embedding must have a positive L2 norm")
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +111,7 @@ class FrameDescriptor:
         ):
             _bounded_score(getattr(self, field_name), field_name)
         if self.embedding is not None:
-            _validate_embedding(self.embedding)
+            validate_embedding(self.embedding, "embedding")
 
     def artifact(self) -> ArtifactRef:
         return ArtifactRef(

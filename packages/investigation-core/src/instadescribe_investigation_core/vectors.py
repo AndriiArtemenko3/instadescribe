@@ -30,6 +30,26 @@ def _require_same_dimension(a: Sequence[float], b: Sequence[float]) -> None:
         raise ValueError(f"vectors must share one dimension, got {len(a)} and {len(b)}")
 
 
+_MAX_EMBEDDING_DIMENSION = 4096
+
+
+def validate_embedding(embedding: object, name: str = "embedding") -> None:
+    """Reject anything cosine similarity could not score deterministically.
+
+    Embeddings must be tuples (hashable inside frozen dataclasses) of finite
+    floats, non-empty, bounded in width, and of positive L2 norm.
+    """
+
+    if not isinstance(embedding, tuple):
+        raise ValueError(f"{name} must be a tuple of floats")
+    if not embedding or len(embedding) > _MAX_EMBEDDING_DIMENSION:
+        raise ValueError(f"{name} must have between 1 and {_MAX_EMBEDDING_DIMENSION} values")
+    if not all(isinstance(value, int | float) and math.isfinite(value) for value in embedding):
+        raise ValueError(f"{name} values must be finite")
+    if math.hypot(*embedding) == 0:
+        raise ValueError(f"{name} must have a positive L2 norm")
+
+
 def dot_product(a: Sequence[float], b: Sequence[float]) -> float:
     """Return ``sum(a_i * b_i)`` for two vectors of the same dimension."""
 

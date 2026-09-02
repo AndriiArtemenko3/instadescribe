@@ -153,6 +153,45 @@ def retrieval_recall_at_k(examples: Sequence[RetrievalPrediction], *, k: int) ->
     return _mean(recalls)
 
 
+def _validated_retrieval(example: RetrievalPrediction) -> None:
+    if not example.relevant_ids:
+        raise ValueError("each retrieval example needs at least one relevant ID")
+    if len(example.ranked_ids) != len(set(example.ranked_ids)):
+        raise ValueError("ranked retrieval IDs must be unique")
+
+
+def retrieval_hit_rate_at_k(examples: Sequence[RetrievalPrediction], *, k: int) -> float:
+    """Fraction of queries with at least one relevant ID in the first ``k`` results.
+
+    ``k=1`` is top-1 accuracy for queries that may have several relevant items;
+    ``retrieval_recall_at_k`` instead measures how much of the relevant set was
+    retrieved.
+    """
+
+    if k <= 0:
+        raise ValueError("k must be positive")
+    hits: list[float] = []
+    for example in examples:
+        _validated_retrieval(example)
+        hits.append(float(any(item in example.relevant_ids for item in example.ranked_ids[:k])))
+    return _mean(hits)
+
+
+def mean_reciprocal_rank(examples: Sequence[RetrievalPrediction]) -> float:
+    """Mean of ``1 / rank`` of the first relevant result (0 when none is ranked)."""
+
+    reciprocals: list[float] = []
+    for example in examples:
+        _validated_retrieval(example)
+        reciprocal = 0.0
+        for index, candidate_id in enumerate(example.ranked_ids, start=1):
+            if candidate_id in example.relevant_ids:
+                reciprocal = 1 / index
+                break
+        reciprocals.append(reciprocal)
+    return _mean(reciprocals)
+
+
 def ndcg_at_k(examples: Sequence[RetrievalPrediction], *, k: int) -> float:
     if k <= 0:
         raise ValueError("k must be positive")

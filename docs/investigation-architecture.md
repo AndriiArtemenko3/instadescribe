@@ -224,6 +224,32 @@ path setting at it. `services/worker/scripts/keyframe_semantic_eval.py` compares
 baseline and semantic selection on one local video and reports the selected-set
 semantic redundancy.
 
+### Visual candidate retrieval (library and benchmark only)
+
+The Apache core now includes exact in-memory retrieval
+(`InMemoryVisualCandidateRetriever`): a query embedding is scored against every
+`VisualCandidate` with the same cosine primitive, and the top-K signed cosines are
+returned as `VisualRetrievalCandidate` values. It is not wired into the worker
+execution path and has no production settings; it answers "which images might
+match?" and its output is not evidence. Geometric verification and `VisualMatch`
+creation remain future stages. `services/worker/scripts/visual_retrieval_eval.py`
+builds a small corpus from the CC BY Sintel clip (neighbour frames and augmented
+copies as relevant candidates, synthetic distractors), embeds each image once with
+the CLIP provider, and reports top-1, hit rate, recall, MRR, nDCG, the
+positive/distractor cosine margin, embedding inference time and exact-search
+retrieval time separately.
+
+**Embedding model artifact provenance.** The provider runs
+`Xenova/clip-vit-base-patch32`, revision `d15189d7028b43f1d3e65039190477f6af591c2a`,
+file `onnx/vision_model.onnx` (sha256
+`fd6e1402a588279d1723c7534d4bcba5bc0b14b47dfab0e46f8c47b8270d7d40`, fp32, 352 MB),
+an ONNX export of `openai/clip-vit-base-patch32` made for Transformers.js. Neither
+Hub repository carries a license tag on its model card; OpenAI's CLIP source
+repository is MIT-licensed. The export's license and provenance are therefore
+**not yet resolved for production use**: the artifact is suitable for local
+development and evaluation, and must not be baked into the worker image until the
+maintainer has confirmed acceptable licensing for the exact file digest above.
+
 ## Evidence and belief contract
 
 The Apache package combines candidate priors and evidence by correlation group:

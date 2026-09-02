@@ -12,6 +12,7 @@ The package includes:
 - deterministic heuristic keyframe ranking with exact, pHash and temporal dedupe, plus
   optional embedding-based semantic novelty;
 - SHA-256, optional image pHash and local `ffprobe` media inspection;
+- exact in-memory visual candidate retrieval over embedding vectors (top-K by cosine);
 - protocols for local observation, action-selection and visual-matching adapters;
 - an offline deterministic runner and atomic JSONL trace export;
 - strict canonical-JSON IPC encoding/decoding without `pickle`;
@@ -74,6 +75,32 @@ Semantic novelty enters the explicit weighted score through
 `KeyframeSelectionConfig.semantic_similarity_threshold` (`FrameRejectionReason.SEMANTIC_DUPLICATE`).
 Both default to off, embeddings default to `None`, and no model, network access or
 vector database is required; without embeddings the selector behaves exactly as before.
+
+## Visual candidate retrieval
+
+`retrieval.py` answers "which images might match?" with exact cosine search and
+nothing more. A query vector $q$ is scored against every candidate $x_i$:
+
+$$
+s_i = \frac{q \cdot x_i}{\|q\|_2 \, \|x_i\|_2}
+$$
+
+and the `limit` highest scores are returned as `VisualRetrievalCandidate` values
+(candidate id, exact signed cosine in $[-1, 1]$, rank, identifying metadata; never
+the vector). Ties are broken by candidate id after rounding the score to twelve
+decimals, so input order never decides the output. Candidates are validated when
+they enter `InMemoryVisualCandidateRetriever` (finite, non-empty, positive norm, one
+shared dimension); the query is validated on every call. Any dimension works; the
+CLIP provider in the worker happens to produce 512.
+
+Cost is $O(ND)$ per query for $N$ candidates of width $D$. The per-candidate loop
+is the row-wise form of $s = Xq$ over unit-normalized rows, which is the natural
+vectorized implementation if measured latency ever needs it. There is no ANN index
+or vector database; add one only when candidate scale or measured latency requires
+it. Retrieval output is not evidence: `VisualMatch` is reserved for the later
+geometric-verification stage, which takes the query image and the candidate's
+`image_ref`, performs local feature matching and RANSAC, and copies
+`embedding_similarity` into the verified result.
 
 ## Minimal offline run
 
