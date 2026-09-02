@@ -58,3 +58,20 @@ class VisualMatcher(Protocol):
     def network_access(self) -> bool: ...
 
     def verify(self, query_path: Path, candidate_path: Path) -> EvidenceItem: ...
+
+
+@runtime_checkable
+class FrameEmbeddingProvider(Protocol):
+    """Produce one embedding vector per frame image for semantic comparison.
+
+    Implementations may wrap a local CLIP-style model or a fixture table; the
+    selector only ever consumes the returned vector through cosine similarity.
+    """
+
+    @property
+    def provenance(self) -> ModelProvenance | None: ...
+
+    @property
+    def network_access(self) -> bool: ...
+
+    def embed_frame(self, frame_path: Path) -> tuple[float, ...]: ...

@@ -1,6 +1,6 @@
 """Open, local-only primitives for evidence-backed video investigation."""
 
-from .adapters import ActionSelector, ObservationAdapter, VisualMatcher
+from .adapters import ActionSelector, FrameEmbeddingProvider, ObservationAdapter, VisualMatcher
 from .belief import (
     ActionUtilityWeights,
     BeliefConfig,
@@ -37,6 +37,7 @@ from .frames import (
     information_score,
     perceptual_hash_distance,
     select_keyframes,
+    semantic_novelty,
 )
 from .ipc import LocalRunExpectation, local_run_result_from_primitive, local_run_result_to_primitive
 from .media import MediaMetadata, fingerprint_media, inspect_media, perceptual_hash, sha256_file
@@ -74,6 +75,7 @@ from .models import (
 from .runner import DeterministicLocalRunner, LocalRunResult, StaticObservationAdapter
 from .serialization import canonical_json, rfc3339, to_primitive
 from .trace import TraceRecorder, read_trace_jsonl, validate_trace, write_trace_jsonl
+from .vectors import cosine_similarity, dot_product, l2_norm
 
 __all__ = [
     "ActionCandidate",
@@ -100,6 +102,7 @@ __all__ = [
     "GeolocationPrediction",
     "FrameDescriptor",
     "FrameDescriptorProvider",
+    "FrameEmbeddingProvider",
     "FrameRejection",
     "FrameRejectionReason",
     "Investigation",
@@ -133,11 +136,14 @@ __all__ = [
     "binary_precision",
     "canonical_json",
     "compute_action_utility",
+    "cosine_similarity",
+    "dot_product",
     "expected_calibration_error",
     "fingerprint_media",
     "haversine_km",
     "information_score",
     "inspect_media",
+    "l2_norm",
     "local_run_result_from_primitive",
     "local_run_result_to_primitive",
     "median_geolocation_error_km",
@@ -150,6 +156,7 @@ __all__ = [
     "rfc3339",
     "select_best_action",
     "select_keyframes",
+    "semantic_novelty",
     "sha256_file",
     "shannon_entropy",
     "to_primitive",

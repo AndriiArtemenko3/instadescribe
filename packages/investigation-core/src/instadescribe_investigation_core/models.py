@@ -197,6 +197,11 @@ class Keyframe:
     information_score: float
     quality_score: float
     selector_cache_key: str | None = None
+    # Semantic-redundancy diagnostics. Both None: the frame carried no embedding.
+    # (None, 1.0): embedded, but nothing was selected yet to compare against.
+    # (x, 1 - max(0, x)): x is the highest cosine similarity to an earlier keyframe.
+    embedding_similarity_max: float | None = None
+    semantic_novelty: float | None = None
 
     def __post_init__(self) -> None:
         _require_identifier(self.keyframe_id, "keyframe_id")
@@ -208,6 +213,17 @@ class Keyframe:
                 raise ValueError(f"{name} must be finite and between zero and one")
         if self.selector_cache_key is not None:
             _require_identifier(self.selector_cache_key, "selector_cache_key")
+        if self.embedding_similarity_max is not None and (
+            not isfinite(self.embedding_similarity_max)
+            or not -1 <= self.embedding_similarity_max <= 1
+        ):
+            raise ValueError("embedding_similarity_max must be finite and between -1 and 1")
+        if self.semantic_novelty is not None and (
+            not isfinite(self.semantic_novelty) or not 0 <= self.semantic_novelty <= 1
+        ):
+            raise ValueError("semantic_novelty must be finite and between zero and one")
+        if self.embedding_similarity_max is not None and self.semantic_novelty is None:
+            raise ValueError("semantic_novelty is required when embedding_similarity_max is set")
 
 
 @dataclass(frozen=True, slots=True)

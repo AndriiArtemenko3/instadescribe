@@ -9,7 +9,8 @@ The package includes:
 - typed investigation, source, evidence, step, belief and trace contracts;
 - correlation-aware evidence fusion, temperature-scaled baseline posteriors, entropy,
   abstention and action-utility calculations;
-- deterministic heuristic keyframe ranking with exact, pHash and temporal dedupe;
+- deterministic heuristic keyframe ranking with exact, pHash and temporal dedupe, plus
+  optional embedding-based semantic novelty;
 - SHA-256, optional image pHash and local `ffprobe` media inspection;
 - protocols for local observation, action-selection and visual-matching adapters;
 - an offline deterministic runner and atomic JSONL trace export;
@@ -32,6 +33,47 @@ ruff check src tests
 The runtime has no required third-party dependency. Pillow is optional and is used
 only when computing a perceptual image hash. `ffprobe`, when available on `PATH`, is
 given a resolved local file path and invoked without a shell.
+
+## Perceptual vs semantic keyframe redundancy
+
+Keyframe selection detects redundant frames in two independent layers:
+
+- **Perceptual redundancy**: `pHash + Hamming distance`. A DCT perceptual hash
+  summarises the pixel layout; a small Hamming distance between two hashes means the
+  frames are visually near-identical.
+- **Semantic redundancy**: `embedding vectors + cosine similarity`. A
+  `FrameEmbeddingProvider` (local model or fixture) attaches an embedding to each
+  `FrameDescriptor`; the selector compares candidates with the keyframes already chosen.
+
+Cosine similarity is implemented in `vectors.py` without external dependencies:
+
+$$
+\cos(\theta) = \frac{a \cdot b}{\|a\|_2 \, \|b\|_2}
+$$
+
+The dot product measures vector alignment, while dividing by the vectors' L2 norms
+removes magnitude, making the comparison primarily about direction. Two frames can
+have different pixels but embeddings pointing in nearly the same direction, indicating
+that they contain similar semantic information.
+
+For a candidate $x$ and the selected set $K$:
+
+$$
+S_{\max}(x) = \max_{s \in K} \cos(x, s), \qquad
+N_{\text{semantic}}(x) = 1 - \max(0, S_{\max}(x))
+$$
+
+Conventions: an empty $K$ yields $S_{\max} = \text{None}$ and novelty $1$; negative
+cosine (embeddings pointing away from each other) saturates novelty at $1$ rather than
+exceeding it; the raw signed $S_{\max}$ is exposed as `Keyframe.embedding_similarity_max`
+alongside `Keyframe.semantic_novelty`. Cosine values are clamped to $[-1, 1]$ only to
+absorb floating-point overshoot.
+
+Semantic novelty enters the explicit weighted score through
+`SelectionWeights.semantic_novelty` and can additionally reject candidates through
+`KeyframeSelectionConfig.semantic_similarity_threshold` (`FrameRejectionReason.SEMANTIC_DUPLICATE`).
+Both default to off, embeddings default to `None`, and no model, network access or
+vector database is required; without embeddings the selector behaves exactly as before.
 
 ## Minimal offline run
 
