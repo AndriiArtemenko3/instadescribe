@@ -80,11 +80,14 @@ numpy==1.26.4
     #   -r services/worker/requirements.in
     #   ctranslate2
     #   onnxruntime
+    #   opencv-python-headless
 onnxruntime==1.28.0
     # via
     #   -r services/worker/requirements.in
     #   faster-whisper
 openai==2.53.0
+    # via -r services/worker/requirements.in
+opencv-python-headless==4.11.0.86
     # via -r services/worker/requirements.in
 packaging==26.3
     # via

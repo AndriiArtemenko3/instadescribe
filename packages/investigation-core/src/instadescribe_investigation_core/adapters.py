@@ -11,9 +11,9 @@ from .models import (
     ActionDecision,
     BeliefSnapshot,
     EvidenceBatch,
-    EvidenceItem,
     ModelProvenance,
     SourceRecord,
+    VisualMatch,
 )
 
 
@@ -49,7 +49,16 @@ class ActionSelector(Protocol):
 
 @runtime_checkable
 class VisualMatcher(Protocol):
-    """Verify an already-retrieved candidate locally."""
+    """Verify an already-retrieved candidate pair locally.
+
+    Verification answers "do these images share geometrically consistent
+    local structure?" and stops at ``VisualMatch``: it is not evidence and
+    never updates beliefs. ``embedding_similarity`` is the retrieval cosine,
+    carried through as provenance only — implementations must not use it to
+    decide ``verified``. Infrastructure failures (missing or unreadable
+    images, invalid configuration) must raise; only a verification that
+    actually ran may return ``verified=False``.
+    """
 
     @property
     def provenance(self) -> ModelProvenance | None: ...
@@ -57,7 +66,15 @@ class VisualMatcher(Protocol):
     @property
     def network_access(self) -> bool: ...
 
-    def verify(self, query_path: Path, candidate_path: Path) -> EvidenceItem: ...
+    def verify(
+        self,
+        query_path: Path,
+        candidate_path: Path,
+        *,
+        embedding_similarity: float,
+        query_artifact_id: str,
+        candidate_artifact_id: str,
+    ) -> VisualMatch: ...
 
 
 @runtime_checkable

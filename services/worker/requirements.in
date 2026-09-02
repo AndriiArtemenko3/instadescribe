@@ -29,9 +29,13 @@ setuptools>=83.0.0
 
 # Numerics + media. onnxruntime also runs the optional CLIP vision ONNX frame
 # embeddings for semantic keyframe selection (instadescribe_worker/frame_embeddings.py).
+# opencv-python-headless provides SIFT + RANSAC homography for local geometric
+# verification of retrieved visual candidates (instadescribe_worker/visual_verification.py);
+# headless keeps the GUI stack out of the worker image.
 numpy>=1.26,<2.0
 Pillow>=12.3.0
 onnxruntime>=1.28
+opencv-python-headless>=4.10
 
 # Export formats (exports.py — same image serves the G5 export path)
 python-docx>=1.0

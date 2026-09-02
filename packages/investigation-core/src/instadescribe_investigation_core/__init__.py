@@ -15,6 +15,7 @@ from .evaluation import (
     GeolocationPrediction,
     RankedPrediction,
     RetrievalPrediction,
+    VerificationPrediction,
     binary_precision,
     expected_calibration_error,
     haversine_km,
@@ -25,6 +26,10 @@ from .evaluation import (
     retrieval_hit_rate_at_k,
     retrieval_recall_at_k,
     top_k_accuracy,
+    verification_confusion,
+    verification_f1,
+    verification_precision,
+    verification_recall,
 )
 from .frames import (
     FrameDescriptor,
@@ -84,6 +89,7 @@ from .runner import DeterministicLocalRunner, LocalRunResult, StaticObservationA
 from .serialization import canonical_json, rfc3339, to_primitive
 from .trace import TraceRecorder, read_trace_jsonl, validate_trace, write_trace_jsonl
 from .vectors import cosine_similarity, dot_product, l2_norm, validate_embedding
+from .verification import verify_retrieval_candidates
 
 __all__ = [
     "ActionCandidate",
@@ -141,9 +147,15 @@ __all__ = [
     "VerificationState",
     "VisualCandidate",
     "VisualCandidateRetriever",
+    "VerificationPrediction",
     "VisualMatch",
     "VisualMatcher",
     "VisualRetrievalCandidate",
+    "verification_confusion",
+    "verification_f1",
+    "verification_precision",
+    "verification_recall",
+    "verify_retrieval_candidates",
     "action_allowed",
     "binary_precision",
     "canonical_json",

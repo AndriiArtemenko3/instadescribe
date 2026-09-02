@@ -231,13 +231,39 @@ The Apache core now includes exact in-memory retrieval
 `VisualCandidate` with the same cosine primitive, and the top-K signed cosines are
 returned as `VisualRetrievalCandidate` values. It is not wired into the worker
 execution path and has no production settings; it answers "which images might
-match?" and its output is not evidence. Geometric verification and `VisualMatch`
-creation remain future stages. `services/worker/scripts/visual_retrieval_eval.py`
+match?" and its output is not evidence. Geometric verification (below) consumes
+these candidates. `services/worker/scripts/visual_retrieval_eval.py`
 builds a small corpus from the CC BY Sintel clip (neighbour frames and augmented
 copies as relevant candidates, synthetic distractors), embeds each image once with
 the CLIP provider, and reports top-1, hit rate, recall, MRR, nDCG, the
 positive/distractor cosine margin, embedding inference time and exact-search
 retrieval time separately.
+
+### Geometric verification (library and benchmark only)
+
+Retrieved candidates are verified locally by
+`instadescribe_worker.visual_verification.SiftRansacVisualMatcher` (OpenCV SIFT
+descriptors, brute-force KNN matching with Lowe's ratio test, RANSAC homography
+`p' ~ H p`). The Apache core owns the seam: the `VisualMatcher` protocol takes
+two image paths plus the retrieval cosine and returns a `VisualMatch`
+(`feature_matches` = ratio-test survivors, `ransac_inliers`, mean inlier
+reprojection error, `verified`, and a named `rejection_reason` such as
+`insufficientFeatures` when unverified); `verify_retrieval_candidates` bridges
+Top-K retrieval output to the matcher without either side knowing the other's
+internals. The decision rule is explicit — good matches, RANSAC inliers and
+inlier ratio must all clear configured minimums (`VerificationConfig`) — and the
+retrieval cosine can never flip `verified`; it is provenance only. Infrastructure
+failures (missing/undecodable images) raise `JobFailure` rather than returning
+`verified=False`, and no combined "confidence" is synthesized from the separate
+signals. Like retrieval, verification is not wired into worker execution and
+produces no evidence or belief updates; `VisualMatch` is where this stage stops.
+`services/worker/scripts/visual_verification_eval.py` benchmarks it on the
+Sintel corpus (neighbour frames plus crop/scale/rotation/brightness/perspective/
+occlusion transforms as positives; cross-scene frames and synthetic images as
+negatives) and reports TP/FP/TN/FN, precision/recall/F1, positive-vs-negative
+signal separation, per-stage latency and a minimum-inlier sensitivity sweep.
+Verification runs offline: OpenCV never touches the network, and the core never
+imports OpenCV.
 
 **Embedding model artifact provenance.** The provider runs
 `Xenova/clip-vit-base-patch32`, revision `d15189d7028b43f1d3e65039190477f6af591c2a`,
@@ -334,8 +360,10 @@ This workspace-backed foundation does not claim:
 - a validated live Qwen, OCR or investigation-ASR pipeline;
 - source-frame image serving in the Browser contract;
 - persisted deterministic replay;
-- public-web search, approved crop egress, SIFT/RANSAC or any other geometric
-  verification;
+- public-web search or approved crop egress;
+- geometric verification wired into worker execution (the SIFT/RANSAC matcher
+  exists as a library + benchmark; verified matches produce no evidence and no
+  belief updates yet);
 - recording-time estimation, damage/change analysis or event clustering;
 - benchmarked accuracy, calibration, recall, latency or memory;
 - a deployed investigation service or production readiness.

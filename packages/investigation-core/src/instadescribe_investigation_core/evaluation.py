@@ -218,3 +218,67 @@ def binary_precision(labels: Sequence[tuple[bool, bool]]) -> float:
     if not predicted:
         return 0
     return sum(predicted) / len(predicted)
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationPrediction:
+    """One verified/relevant pair judgement for geometric verification.
+
+    ``verified`` is the matcher's decision; ``relevant`` is the benchmark
+    ground truth for the same query/candidate pair.
+    """
+
+    verified: bool
+    relevant: bool
+
+
+def verification_confusion(
+    examples: Sequence[VerificationPrediction],
+) -> dict[str, int]:
+    """Return TP/FP/TN/FN counts for verification decisions."""
+
+    if not examples:
+        raise ValueError("at least one example is required")
+    counts = {"tp": 0, "fp": 0, "tn": 0, "fn": 0}
+    for example in examples:
+        if example.verified and example.relevant:
+            counts["tp"] += 1
+        elif example.verified and not example.relevant:
+            counts["fp"] += 1
+        elif not example.verified and not example.relevant:
+            counts["tn"] += 1
+        else:
+            counts["fn"] += 1
+    return counts
+
+
+def verification_precision(examples: Sequence[VerificationPrediction]) -> float | None:
+    """TP / (TP + FP); None when nothing was verified (undefined, not zero)."""
+
+    counts = verification_confusion(examples)
+    decided = counts["tp"] + counts["fp"]
+    if decided == 0:
+        return None
+    return counts["tp"] / decided
+
+
+def verification_recall(examples: Sequence[VerificationPrediction]) -> float | None:
+    """TP / (TP + FN); None when no positive pairs exist (undefined, not zero)."""
+
+    counts = verification_confusion(examples)
+    positives = counts["tp"] + counts["fn"]
+    if positives == 0:
+        return None
+    return counts["tp"] / positives
+
+
+def verification_f1(examples: Sequence[VerificationPrediction]) -> float | None:
+    """Harmonic mean of precision and recall; None when either is undefined."""
+
+    precision = verification_precision(examples)
+    recall = verification_recall(examples)
+    if precision is None or recall is None:
+        return None
+    if precision + recall == 0:
+        return 0.0
+    return 2 * precision * recall / (precision + recall)
