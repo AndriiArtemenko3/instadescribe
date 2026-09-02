@@ -81,7 +81,9 @@ numpy==1.26.4
     #   ctranslate2
     #   onnxruntime
 onnxruntime==1.28.0
-    # via faster-whisper
+    # via
+    #   -r services/worker/requirements.in
+    #   faster-whisper
 openai==2.53.0
     # via -r services/worker/requirements.in
 packaging==26.3

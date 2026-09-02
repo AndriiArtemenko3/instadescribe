@@ -195,6 +195,35 @@ launch. A live model cannot run end to end until candidate and model-provenance
 proposals become validated parent inputs. This fail-closed gap is intentional and
 must not be described as a working Qwen demo.
 
+### Optional semantic keyframe embeddings
+
+The live extraction path can attach a CLIP-vision embedding to every candidate
+frame before the Apache selector runs, so semantically redundant frames (same
+landmark, different pixels) are down-ranked or rejected in addition to the pHash
+near-duplicate gate. The provider lives in the worker
+(`instadescribe_worker/frame_embeddings.py`); the Apache core only ever sees a
+vector on `FrameDescriptor.embedding` and stays model-agnostic.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `INSTADESCRIBE_INVESTIGATION_SEMANTIC_KEYFRAMES` | `false` | Enable embedding inference and semantic selection |
+| `INSTADESCRIBE_INVESTIGATION_SEMANTIC_NOVELTY_WEIGHT` | `0.3` | Soft ranking weight of `semantic_novelty` in the explicit score |
+| `INSTADESCRIBE_INVESTIGATION_SEMANTIC_SIMILARITY_THRESHOLD` | unset | Hard gate: cosine at or above it rejects the frame as `semanticDuplicate` |
+| `INSTADESCRIBE_FRAME_EMBEDDING_MODEL_PATH` | unset | Absolute path of a local CLIP vision ONNX export (required when enabled) |
+
+Disabled is the default and performs no inference and no model load; keyframe
+results are unchanged. Enabling without a model path, or with neither the weight
+nor the threshold active, fails settings validation instead of degrading to
+pHash-only selection. The model is loaded lazily on the first frame, every
+candidate is embedded exactly once, and the selector reuses the stored vector for
+all comparisons. Embeddings are raw model outputs (not unit-normalized); cosine
+similarity divides by both norms. The model file is not baked into the worker
+image yet; fetch the `Xenova/clip-vit-base-patch32` export
+(`onnx/vision_model.onnx`, 512-d) with `huggingface-cli download` and point the
+path setting at it. `services/worker/scripts/keyframe_semantic_eval.py` compares
+baseline and semantic selection on one local video and reports the selected-set
+semantic redundancy.
+
 ## Evidence and belief contract
 
 The Apache package combines candidate priors and evidence by correlation group:

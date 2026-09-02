@@ -25,6 +25,35 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def validate_semantic_keyframe_settings(
+    *,
+    enabled: bool,
+    novelty_weight: float,
+    similarity_threshold: float | None,
+    model_path: str | None,
+) -> None:
+    """Fail closed on an enabled-but-unusable semantic keyframe configuration.
+
+    Shared by the parent settings and the isolated child's revalidated copy so a
+    misconfiguration never silently degrades to pHash-only selection.
+    """
+
+    if not enabled:
+        return
+    if model_path is None or not model_path.strip():
+        raise ValueError(
+            "semantic keyframe selection is enabled, but no frame embedding model path "
+            "is configured (INSTADESCRIBE_FRAME_EMBEDDING_MODEL_PATH)"
+        )
+    if not model_path.startswith("/"):
+        raise ValueError("frame embedding model path must be absolute")
+    if novelty_weight <= 0 and similarity_threshold is None:
+        raise ValueError(
+            "semantic keyframe selection is enabled, but neither the novelty weight nor "
+            "the similarity threshold is active"
+        )
+
+
 class WorkerSettings(BaseSettings):
     model_config = SettingsConfigDict(
         extra="ignore", validate_default=True, hide_input_in_errors=True
@@ -94,6 +123,32 @@ class WorkerSettings(BaseSettings):
         ge=768,
         le=1024,
         validation_alias="INSTADESCRIBE_INVESTIGATION_IMAGE_LONG_EDGE",
+    )
+    # Optional embedding-based semantic keyframe selection. Disabled by default:
+    # no model is loaded and keyframe selection is byte-for-byte unchanged. The
+    # novelty weight is a soft ranking term; the similarity threshold is a hard
+    # semanticDuplicate gate. They are independent and both may be active.
+    investigation_semantic_keyframes_enabled: bool = Field(
+        default=False,
+        validation_alias="INSTADESCRIBE_INVESTIGATION_SEMANTIC_KEYFRAMES",
+    )
+    investigation_semantic_novelty_weight: float = Field(
+        default=0.3,
+        ge=0,
+        le=1,
+        validation_alias="INSTADESCRIBE_INVESTIGATION_SEMANTIC_NOVELTY_WEIGHT",
+    )
+    investigation_semantic_similarity_threshold: float | None = Field(
+        default=None,
+        ge=-1,
+        le=1,
+        validation_alias="INSTADESCRIBE_INVESTIGATION_SEMANTIC_SIMILARITY_THRESHOLD",
+    )
+    # Absolute path of a local CLIP vision ONNX export; never downloaded at runtime.
+    investigation_frame_embedding_model_path: str | None = Field(
+        default=None,
+        max_length=1024,
+        validation_alias="INSTADESCRIBE_FRAME_EMBEDDING_MODEL_PATH",
     )
     aws_region: str = Field(default="eu-west-2", validation_alias="AWS_DEFAULT_REGION")
     s3_endpoint_internal: str | None = Field(
@@ -352,6 +407,12 @@ class WorkerSettings(BaseSettings):
             raise ValueError("fixture scenario requires the fixture runtime")
         if self.deployment_tier != "beta" and self.subprocess_timeout_secs > 1700:
             raise ValueError("portfolio subprocess timeout must not exceed 1700 seconds")
+        validate_semantic_keyframe_settings(
+            enabled=self.investigation_semantic_keyframes_enabled,
+            novelty_weight=self.investigation_semantic_novelty_weight,
+            similarity_threshold=self.investigation_semantic_similarity_threshold,
+            model_path=self.investigation_frame_embedding_model_path,
+        )
         if self.max_attempts != PROVIDER_MAX_ATTEMPTS[self.provider]:
             raise ValueError("configured attempt bound does not match provider policy")
         if self.heartbeat_interval_secs * 3 > self.lease_duration_secs:
