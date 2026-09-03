@@ -154,10 +154,11 @@ export async function uploadBrowserFile(
   if (!response.ok) throw new BrowserIntegrationError('upload_failed')
 }
 
-export async function completeBrowserUpload(jobId: string): Promise<void> {
+export async function completeBrowserUpload(jobId: string, idempotencyKey = crypto.randomUUID()): Promise<void> {
   if (!UUID.test(jobId)) throw new BrowserIntegrationError('invalid_job_id')
+  if (!UUID.test(idempotencyKey)) throw new BrowserIntegrationError('invalid_idempotency_key', jobId)
   try {
-    await jsonWrite(`jobs/${jobId}/uploads/complete`, {}, crypto.randomUUID())
+    await jsonWrite(`jobs/${jobId}/uploads/complete`, {}, idempotencyKey)
   } catch (error) {
     if (error instanceof BrowserIntegrationError) throw new BrowserIntegrationError(error.code, jobId)
     throw error

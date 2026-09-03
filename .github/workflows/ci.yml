@@ -161,6 +161,13 @@ jobs:
         run: alembic check
       - name: Cloud API tests
         run: pytest services/api/tests -q
+      # The worker suite exercises frame embedding, visual retrieval and
+      # geometric verification, so it needs the worker's own runtime lock
+      # (numpy, Pillow, OpenCV, onnxruntime) rather than only the API
+      # dependencies. Installed after the API tests so the cloud API lane is
+      # exercised against exactly the dependency set it ships with.
+      - name: Install worker runtime dependencies
+        run: pip install -r services/worker/requirements.txt
       - name: Worker and API-first beta acceptance tests
         run: pytest services/worker/tests -q
 

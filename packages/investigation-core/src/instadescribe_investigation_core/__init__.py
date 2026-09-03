@@ -1,6 +1,6 @@
 """Open, local-only primitives for evidence-backed video investigation."""
 
-from .adapters import ActionSelector, ObservationAdapter, VisualMatcher
+from .adapters import ActionSelector, FrameEmbeddingProvider, ObservationAdapter, VisualMatcher
 from .belief import (
     ActionUtilityWeights,
     BeliefConfig,
@@ -15,14 +15,21 @@ from .evaluation import (
     GeolocationPrediction,
     RankedPrediction,
     RetrievalPrediction,
+    VerificationPrediction,
     binary_precision,
     expected_calibration_error,
     haversine_km,
+    mean_reciprocal_rank,
     median_geolocation_error_km,
     multiclass_brier_score,
     ndcg_at_k,
+    retrieval_hit_rate_at_k,
     retrieval_recall_at_k,
     top_k_accuracy,
+    verification_confusion,
+    verification_f1,
+    verification_precision,
+    verification_recall,
 )
 from .frames import (
     FrameDescriptor,
@@ -37,6 +44,7 @@ from .frames import (
     information_score,
     perceptual_hash_distance,
     select_keyframes,
+    semantic_novelty,
 )
 from .ipc import LocalRunExpectation, local_run_result_from_primitive, local_run_result_to_primitive
 from .media import MediaMetadata, fingerprint_media, inspect_media, perceptual_hash, sha256_file
@@ -71,9 +79,24 @@ from .models import (
     VerificationState,
     VisualMatch,
 )
+from .retrieval import (
+    InMemoryVisualCandidateRetriever,
+    VisualCandidate,
+    VisualCandidateRetriever,
+    VisualRetrievalCandidate,
+)
 from .runner import DeterministicLocalRunner, LocalRunResult, StaticObservationAdapter
 from .serialization import canonical_json, rfc3339, to_primitive
 from .trace import TraceRecorder, read_trace_jsonl, validate_trace, write_trace_jsonl
+from .vectors import cosine_similarity, dot_product, l2_norm, validate_embedding
+from .verification import verify_retrieval_candidates
+from .visual_evidence import (
+    VisualCandidateBinding,
+    VisualEvidenceConfig,
+    visual_evidence_correlation_group,
+    visual_evidence_id,
+    visual_match_to_evidence,
+)
 
 __all__ = [
     "ActionCandidate",
@@ -98,8 +121,10 @@ __all__ = [
     "EvidenceItem",
     "EvidenceKind",
     "GeolocationPrediction",
+    "InMemoryVisualCandidateRetriever",
     "FrameDescriptor",
     "FrameDescriptorProvider",
+    "FrameEmbeddingProvider",
     "FrameRejection",
     "FrameRejectionReason",
     "Investigation",
@@ -127,34 +152,55 @@ __all__ = [
     "TraceEventType",
     "TraceRecorder",
     "VerificationState",
+    "VisualCandidate",
+    "VisualCandidateRetriever",
+    "VerificationPrediction",
+    "VisualCandidateBinding",
+    "VisualEvidenceConfig",
     "VisualMatch",
     "VisualMatcher",
+    "VisualRetrievalCandidate",
+    "verification_confusion",
+    "verification_f1",
+    "verification_precision",
+    "verification_recall",
+    "verify_retrieval_candidates",
+    "visual_evidence_correlation_group",
+    "visual_evidence_id",
+    "visual_match_to_evidence",
     "action_allowed",
     "binary_precision",
     "canonical_json",
     "compute_action_utility",
+    "cosine_similarity",
+    "dot_product",
     "expected_calibration_error",
     "fingerprint_media",
     "haversine_km",
     "information_score",
     "inspect_media",
+    "l2_norm",
     "local_run_result_from_primitive",
     "local_run_result_to_primitive",
+    "mean_reciprocal_rank",
     "median_geolocation_error_km",
     "multiclass_brier_score",
     "ndcg_at_k",
     "perceptual_hash",
     "perceptual_hash_distance",
     "read_trace_jsonl",
+    "retrieval_hit_rate_at_k",
     "retrieval_recall_at_k",
     "rfc3339",
     "select_best_action",
     "select_keyframes",
+    "semantic_novelty",
     "sha256_file",
     "shannon_entropy",
     "to_primitive",
     "top_k_accuracy",
     "update_beliefs",
+    "validate_embedding",
     "validate_trace",
     "write_trace_jsonl",
 ]

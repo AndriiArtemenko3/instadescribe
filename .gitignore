@@ -92,3 +92,9 @@ PERSONA.png
 evaluation-2026-04-27.md
 project.gitignore
 info/
+
+# Frame analysis demo output: regenerate with
+# services/worker/scripts/frame_analysis_demo.py. The manifest and its extracted
+# frame images are derived from local media and are not repository content.
+App/public/frame-analysis/
+build/frame-analysis/

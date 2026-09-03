@@ -17,6 +17,16 @@ const UUID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-
 const SCENE = 'scene_[1-9][0-9]*'
 
 const ROUTES: ReadonlyArray<{ method: string; pattern: RegExp }> = [
+  { method: 'GET', pattern: /^investigations$/ },
+  { method: 'POST', pattern: /^investigations$/ },
+  { method: 'GET', pattern: new RegExp(`^investigations/${UUID}$`) },
+  { method: 'POST', pattern: new RegExp(`^investigations/${UUID}/cancel$`) },
+  { method: 'GET', pattern: new RegExp(`^investigations/${UUID}/steps$`) },
+  { method: 'GET', pattern: new RegExp(`^investigations/${UUID}/keyframes$`) },
+  { method: 'GET', pattern: new RegExp(`^investigations/${UUID}/evidence$`) },
+  { method: 'GET', pattern: new RegExp(`^investigations/${UUID}/beliefs$`) },
+  { method: 'GET', pattern: new RegExp(`^investigations/${UUID}/report$`) },
+  { method: 'POST', pattern: new RegExp(`^investigations/${UUID}/decision$`) },
   { method: 'POST', pattern: /^jobs$/ },
   { method: 'GET', pattern: new RegExp(`^jobs/${UUID}$`) },
   { method: 'POST', pattern: new RegExp(`^jobs/${UUID}/uploads/complete$`) },
@@ -49,6 +59,32 @@ function normalizedOrigin(value: string): string | null {
     return url.origin
   } catch {
     return null
+  }
+}
+
+async function boundedRequestBody(request: Request): Promise<ArrayBuffer | null> {
+  if (!request.body) return new ArrayBuffer(0)
+  const reader = request.body.getReader()
+  const body = new Uint8Array(MAX_REQUEST_BYTES)
+  let received = 0
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) return body.slice(0, received).buffer
+      if (value.byteLength > MAX_REQUEST_BYTES - received) {
+        try {
+          await reader.cancel()
+        } catch {
+          // The size decision is already final; a producer-side cancel failure
+          // must not turn a bounded 413 into an unhandled relay failure.
+        }
+        return null
+      }
+      body.set(value, received)
+      received += value.byteLength
+    }
+  } finally {
+    reader.releaseLock()
   }
 }
 
@@ -127,8 +163,8 @@ export async function handleCloudProxy(
     if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) {
       return jsonResponse(413, { error: { code: 'request_too_large', message: 'Request rejected.' } })
     }
-    const bytes = await request.arrayBuffer()
-    if (bytes.byteLength > MAX_REQUEST_BYTES) {
+    const bytes = await boundedRequestBody(request)
+    if (bytes === null) {
       return jsonResponse(413, { error: { code: 'request_too_large', message: 'Request rejected.' } })
     }
     body = bytes

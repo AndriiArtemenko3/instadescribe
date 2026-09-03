@@ -2,9 +2,10 @@
 
 > **Status boundary:** the repository contains an implemented API-first
 > audio-description platform and a parallel video-investigation foundation. The
-> investigation proof is a deterministic, no-model Browser-to-report fixture. An
-> investigation workspace, live multimodal inference, retrieval, persisted replay,
-> benchmark results and deployment are not present capabilities.
+> investigation proof is a deterministic, no-model Browser-to-report fixture plus
+> an authenticated Next.js workspace verified with synthetic desktop/mobile browser
+> coverage. Live multimodal inference, retrieval, persisted replay, benchmark
+> results and deployment are not present capabilities.
 
 InstaDescribe is an asynchronous, human-in-the-loop video platform with two explicit
 workflows. Observable Video Intelligence is the current product direction;
@@ -23,7 +24,7 @@ flowchart LR
         SDK["@instadescribe/sdk"]
         CLI["instadescribe CLI"]
         PERSON["Owner / editor / reviewer / viewer"]
-        WEB["Next.js App Router"]
+        WEB["Next.js investigation workspace"]
     end
 
     CMS --> SDK
@@ -66,6 +67,13 @@ with no model or public-web call. See
 [Video-investigation foundation](./investigation-architecture.md) for the current
 domain, routes, trust boundary and explicit non-capabilities.
 
+The primary Next.js routes list and create investigations, render the evidence
+workspace, capture an analyst decision and present the lineage report. Their BFF is
+an exact allowlist over the existing Browser API; it does not proxy source media or
+keyframe pixels. The primary navigation moves audio description behind the explicit
+legacy entry; existing `/projects`, `/upload` and review compatibility routes, plus
+the rollback editor, remain available for retained workflow access.
+
 ## Ownership boundaries
 
 | Component | Owns | Explicitly does not own |
@@ -75,7 +83,7 @@ domain, routes, trust boundary and explicit non-capabilities.
 | S3 | private source, transcript, intermediate and deliverable object versions | business state or authorization decisions |
 | SQS | at-least-once task transport | durable job truth |
 | Python workers | validation, analysis, TTS, render and integrity calculation under a lease/fence | public lifecycle transitions without database guards |
-| Next.js | authenticated routes, opaque browser session, CSRF/origin checks and thin same-origin JSON proxy | service API keys and domain/state rules |
+| Next.js | authenticated investigation routes, opaque browser session, CSRF/origin checks, strict response parsing and thin same-origin JSON proxy | service API keys, media bytes and domain/state rules |
 | SDK / CLI | safe integration ergonomics, streaming transfers, polling and webhook verification | review mutation or provider configuration |
 
 ## Domain and tenancy
@@ -195,10 +203,13 @@ stores only an opaque, secure `__Host-` session cookie. Cognito tokens are encry
 in a separate TTL-backed DynamoDB session table. JSON mutations require CSRF and
 Origin validation.
 
-The editor remains a Client Component because it owns rich local interaction, but
-data authority remains in FastAPI. Unknown routes return a real `404`. The Vite build
-is retained as a rollback path until browser/media parity is accepted; the separate
-Astro marketing site is not part of this migration.
+The investigation workspace remains a Client Component because it owns rich local
+interaction, but data authority remains in FastAPI. Its list/create/workspace/report
+routes are protected by the opaque-cookie boundary, and bounded `returnTo` handling
+preserves only canonical application paths. Unknown routes return a real `404`.
+The exact BFF allowlist contains no retrieval or egress route. The Vite build is
+retained as an audio-description rollback path; the separate Astro marketing site
+is not part of this migration.
 
 ## Deployment truth
 
@@ -206,7 +217,7 @@ Astro marketing site is not part of this migration.
 |---|---|---|
 | Cloud Core v0.1 | Historical deployment evidence only | Legacy Vite + shared portfolio token + FastAPI/PostgreSQL/S3/SQS; no current availability or support claim |
 | API-first B2B beta | Implemented and locally verified | Next.js/BFF, Cognito, organizations, service keys, Integration API, SDK/CLI, full review/render/delivery and webhooks |
-| Video-investigation foundation | Implemented and fixture-verified in source | Browser API, durable evidence domain, dedicated queue, fenced worker and strict isolated result boundary; no investigation workspace, live model, retrieval, replay, benchmark or deployment |
+| Video-investigation foundation | Implemented and fixture-verified in source | Browser API, durable evidence domain, dedicated queue, fenced worker, strict isolated result boundary and authenticated analyst workspace; no live model, retrieval, replay, benchmark or deployment |
 | Isolated beta AWS stack | Defined but not cut over | Live restore, identity, upload, webhook and real-provider canaries remain release gates |
 | npm SDK/CLI | Source complete, unpublished | Publication requires an approved immutable tag and post-publish tarball E2E |
 

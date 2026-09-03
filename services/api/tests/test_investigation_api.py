@@ -3,6 +3,7 @@
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -14,6 +15,7 @@ from app.models import (
     Asset,
     AuditEvent,
     BeliefSnapshot,
+    EvidenceItem,
     IdempotencyRecord,
     Investigation,
     Job,
@@ -21,7 +23,8 @@ from app.models import (
     SourceRecord,
 )
 from app.repositories.investigations import get_investigation
-from app.schemas.investigations import InvestigationCreateRequest
+from app.schemas.investigations import EvidenceObservation, InvestigationCreateRequest
+from app.services.investigations import evidence_body, keyframe_body
 from investigation_support import seed_deterministic_result
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
@@ -109,6 +112,43 @@ def test_investigation_writes_document_validation_as_problem_details():
         response = paths[path]["post"]["responses"]["422"]
         assert response["description"] == "Request validation failed"
         assert set(response["content"]) == {"application/problem+json"}
+
+
+def test_browser_evidence_projection_omits_internal_observation_details():
+    from app.main import app
+
+    sentinel = "INTERNAL_OBSERVATION_SENTINEL"
+    item = EvidenceItem(
+        id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        job_id=uuid.uuid4(),
+        investigation_id=uuid.uuid4(),
+        kind="keyframe",
+        observation={
+            "summary": "A bounded public observation.",
+            "details": {"sentinel": sentinel, "contributions": [{"score": 0.9}]},
+        },
+        frame_time_ms=4_000,
+        bbox=None,
+        polarity="neutral",
+        reliability=Decimal("0.95"),
+        verification_state="proposed",
+        correlation_group="frame-4000",
+        created_at=datetime(2026, 8, 30, 12, tzinfo=UTC),
+    )
+
+    with pytest.raises(ValidationError):
+        EvidenceObservation.model_validate(item.observation)
+    observation_schema = app.openapi()["components"]["schemas"]["EvidenceObservation"]
+    assert set(observation_schema["properties"]) == {"summary"}
+
+    evidence = evidence_body(item)
+    keyframe = keyframe_body(item)
+    assert evidence["observation"] == {"summary": "A bounded public observation."}
+    assert keyframe["observation"] == {"summary": "A bounded public observation."}
+    assert item.observation["details"]["sentinel"] == sentinel
+    assert sentinel not in str(evidence)
+    assert sentinel not in str(keyframe)
 
 
 def _stub_presigning(monkeypatch) -> list[tuple[str, str, dict]]:
@@ -820,6 +860,12 @@ def test_trace_finalize_report_and_idor_matrix(
     assert len(resources["evidence"].json()["data"]) == 2
     assert len(resources["keyframes"].json()["data"]) == 1
     assert len(resources["beliefs"].json()["data"]) == 2
+    assert all(
+        set(item["observation"]) == {"summary"} for item in resources["evidence"].json()["data"]
+    )
+    assert all(
+        set(item["observation"]) == {"summary"} for item in resources["keyframes"].json()["data"]
+    )
 
     evidence_decisions = [
         {"evidenceId": item["evidenceId"], "decision": "accepted"}
@@ -855,6 +901,7 @@ def test_trace_finalize_report_and_idor_matrix(
         "purgeAfter": "2026-09-13T12:00:00Z",
     }
     assert all(item["verificationState"] == "proposed" for item in report.json()["evidence"])
+    assert all(set(item["observation"]) == {"summary"} for item in report.json()["evidence"])
     assert {item["decision"] for item in report.json()["decision"]["evidenceDecisions"]} == {
         "accepted"
     }

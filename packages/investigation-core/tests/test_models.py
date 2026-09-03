@@ -12,6 +12,7 @@ from instadescribe_investigation_core import (
     EvidenceContribution,
     EvidenceItem,
     InvestigationStep,
+    Keyframe,
     SourceRecord,
     StepStatus,
 )
@@ -78,3 +79,25 @@ def test_audit_extension_dictionaries_are_defensively_copied() -> None:
     expected = {"extension": {"values": ["original"]}}
     assert evidence.attributes == expected
     assert step.attributes == expected
+
+
+def test_keyframe_semantic_diagnostics_are_validated() -> None:
+    artifact = ArtifactRef("frame-1", "a" * 64, "image/jpeg", 10)
+    keyframe = Keyframe(
+        "keyframe-1",
+        artifact,
+        0,
+        0,
+        0.5,
+        0.5,
+        embedding_similarity_max=-0.2,
+        semantic_novelty=1.0,
+    )
+
+    assert keyframe.embedding_similarity_max == -0.2
+    with pytest.raises(ValueError, match="embedding_similarity_max"):
+        Keyframe("k", artifact, 0, 0, 0.5, 0.5, embedding_similarity_max=1.5, semantic_novelty=0)
+    with pytest.raises(ValueError, match="semantic_novelty must"):
+        Keyframe("k", artifact, 0, 0, 0.5, 0.5, semantic_novelty=-0.1)
+    with pytest.raises(ValueError, match="semantic_novelty is required"):
+        Keyframe("k", artifact, 0, 0, 0.5, 0.5, embedding_similarity_max=0.4)

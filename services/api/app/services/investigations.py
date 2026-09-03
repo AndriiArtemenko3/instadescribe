@@ -123,7 +123,7 @@ def evidence_body(item: EvidenceItem) -> dict[str, Any]:
         EvidenceItemResponse(
             evidenceId=item.id,
             kind=item.kind,
-            observation=item.observation,
+            observation={"summary": item.observation.get("summary")},
             frameTimeMs=item.frame_time_ms,
             bbox=item.bbox,
             polarity=item.polarity,
@@ -133,7 +133,6 @@ def evidence_body(item: EvidenceItem) -> dict[str, Any]:
             createdAt=item.created_at,
         )
     )
-    body["observation"] = _without_none(body["observation"])
     return body
 
 
@@ -144,12 +143,11 @@ def keyframe_body(item: EvidenceItem) -> dict[str, Any]:
         KeyframeResponse(
             evidenceId=item.id,
             frameTimeMs=item.frame_time_ms,
-            observation=item.observation,
+            observation={"summary": item.observation.get("summary")},
             bbox=item.bbox,
             createdAt=item.created_at,
         )
     )
-    body["observation"] = _without_none(body["observation"])
     return body
 
 

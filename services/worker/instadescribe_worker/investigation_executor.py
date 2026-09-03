@@ -170,6 +170,16 @@ def execute_local_investigation(
             "investigation_max_keyframes": settings.investigation_max_keyframes,
             "investigation_batch_size": settings.investigation_batch_size,
             "investigation_image_long_edge": settings.investigation_image_long_edge,
+            "investigation_semantic_keyframes_enabled": (
+                settings.investigation_semantic_keyframes_enabled
+            ),
+            "investigation_semantic_novelty_weight": settings.investigation_semantic_novelty_weight,
+            "investigation_semantic_similarity_threshold": (
+                settings.investigation_semantic_similarity_threshold
+            ),
+            "investigation_frame_embedding_model_path": (
+                settings.investigation_frame_embedding_model_path
+            ),
         }
     )
     if runtime.investigation_runtime != "fixture":

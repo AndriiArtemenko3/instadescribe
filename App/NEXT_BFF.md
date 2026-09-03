@@ -26,8 +26,23 @@ The metadata relay currently admits these method/path pairs, which match the hum
   `GET /jobs/{jobId}/render`, and `GET /jobs/{jobId}/deliverables`;
 - `GET /deliverables/{deliverableId}/content`, whose upstream response is a redirect to a signed
   object URL rather than media bytes through Next.
+- `POST /jobs/{jobId}/scenes/{sceneId}/tts-previews`, plus `GET` on a preview and
+  its signed-content redirect;
 - `PATCH /projects/{projectId}` for an idempotent, version-checked metadata update.
 - `POST /organization/invitations` for an Owner/MFA-only editor, reviewer or viewer invitation.
+- `GET` and `POST /investigations`;
+- `GET /investigations/{investigationId}` plus `GET` on its `steps`, `keyframes`,
+  `evidence`, `beliefs` and `report` children;
+- `POST /investigations/{investigationId}/cancel` and
+  `POST /investigations/{investigationId}/decision`.
+
+Those ten dedicated investigation method/path pairs, together with the existing
+shared `POST /jobs/{jobId}/uploads/complete` route, are the complete investigation
+workspace relay footprint. The BFF also retains the audio-description and
+organization routes listed above. Malformed identifiers, wrong methods, raw/nested
+paths and proposed egress paths return `404` before an upstream request. Source video
+still follows the direct-upload contract; Next receives neither the media bytes nor
+an investigation keyframe image.
 
 Every relay call carries a short-lived `X-InstaDescribe-Browser-Assertion` generated only by the
 BFF. It binds canonical email and completed-MFA state to the SHA-256 digest of the exact Cognito
@@ -49,6 +64,20 @@ Editor, Reviewer and Viewer accounts can start the same fail-closed flow from Ac
 MFA-enabled sessions are left intact and do not receive a second seed.
 
 The project response must be exactly `{ "data": [{ "id", "orgSlug", "currentJobId", "name", "status", "updatedAt" }] }`. Extra fields, including media URLs or storage details, invalidate the response.
+
+Investigation responses are also parsed as exact, bounded shapes in the browser
+client. Unknown fields, invalid UUIDs or timestamps, non-normalized probabilities,
+out-of-frame boxes and inconsistent abstention/final-hypothesis states fail closed as
+`invalid_response`. The UI never interprets an arbitrary upstream object as evidence.
+The Browser API evidence projection exposes the bounded observation summary but
+omits internal observation-detail maps; those details are not part of the BFF or UI
+contract.
+
+The product routes `/investigations`, `/investigations/new`, canonical UUID workspace
+and report paths, and `/legacy/audio-description` are protected by the same optimistic
+cookie boundary. A bounded `returnTo` preserves only those paths and the existing
+account/upload/review paths; origins, queries, fragments, malformed UUIDs and nested
+suffixes fall back to `/investigations`.
 
 ## Current operational contract
 

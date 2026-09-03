@@ -35,11 +35,15 @@ from instadescribe_investigation_core import (
     EvidenceItem,
     EvidenceKind,
     FrameDescriptor,
+    FrameEmbeddingProvider,
+    FrameRejection,
     InvestigationKind,
     InvestigationStep,
+    Keyframe,
     KeyframeSelectionConfig,
     LocalRunExpectation,
     ModelProvenance,
+    SelectionWeights,
     SourceRecord,
     StaticObservationAdapter,
     StepStatus,
@@ -49,8 +53,9 @@ from instadescribe_investigation_core import (
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from instadescribe_worker.config import WorkerSettings
+from instadescribe_worker.config import WorkerSettings, validate_semantic_keyframe_settings
 from instadescribe_worker.failures import FailureCode, JobFailure
+from instadescribe_worker.frame_embeddings import OnnxClipFrameEmbeddingProvider
 
 _MAX_RESPONSE_BYTES = 1_000_000
 _MAX_FRAME_BYTES = 3_000_000
@@ -59,6 +64,8 @@ _FIXTURE_TIME = datetime(2025, 1, 1, tzinfo=UTC)
 _VIDEO_DEMUXERS = {".mp4": "mov", ".mov": "mov", ".webm": "matroska,webm"}
 _OLLAMA_OPTIONS = {"temperature": 0, "num_predict": 1800}
 _OLLAMA_KEEP_ALIVE = "5m"
+_SELECTOR_VERSION = "ffmpeg-uniform+heuristic-v1"
+_SEMANTIC_SELECTOR_VERSION = "ffmpeg-uniform+heuristic-v1+semantic-v1"
 
 
 class _StrictModel(BaseModel):
@@ -77,6 +84,20 @@ class InvestigationRuntimeSettings(_StrictModel):
     investigation_max_keyframes: int = Field(ge=4, le=24)
     investigation_batch_size: int = Field(ge=4, le=8)
     investigation_image_long_edge: int = Field(ge=768, le=1024)
+    investigation_semantic_keyframes_enabled: bool = False
+    investigation_semantic_novelty_weight: float = Field(default=0.3, ge=0, le=1)
+    investigation_semantic_similarity_threshold: float | None = Field(default=None, ge=-1, le=1)
+    investigation_frame_embedding_model_path: str | None = Field(default=None, max_length=1024)
+
+    @model_validator(mode="after")
+    def _semantic_keyframes_are_usable(self) -> InvestigationRuntimeSettings:
+        validate_semantic_keyframe_settings(
+            enabled=self.investigation_semantic_keyframes_enabled,
+            novelty_weight=self.investigation_semantic_novelty_weight,
+            similarity_threshold=self.investigation_semantic_similarity_threshold,
+            model_path=self.investigation_frame_embedding_model_path,
+        )
+        return self
 
     @model_validator(mode="after")
     def _fixture_is_explicit(self) -> InvestigationRuntimeSettings:
@@ -291,6 +312,50 @@ class _OllamaCallResult:
 class ExtractedFrame:
     descriptor: FrameDescriptor
     path: Path
+    # Populated for selected frames only: the core's ranked view including the
+    # semantic diagnostics (embedding_similarity_max, semantic_novelty).
+    keyframe: Keyframe | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RankedFrames:
+    """Selected frames plus the selection diagnostics the audit step records."""
+
+    selected: tuple[ExtractedFrame, ...]
+    rejected: tuple[FrameRejection, ...]
+    candidate_count: int
+    selector_version: str
+    semantic_enabled: bool
+    embedding_inference_calls: int = 0
+    embedding_dimension: int | None = None
+    embedding_model: ModelProvenance | None = None
+
+    def step_attributes(self) -> dict:
+        rejections: dict[str, int] = {}
+        for item in self.rejected:
+            rejections[item.reason.value] = rejections.get(item.reason.value, 0) + 1
+        attributes: dict = {
+            "candidateFrames": self.candidate_count,
+            "selectedFrames": len(self.selected),
+            "rejections": rejections,
+        }
+        if self.semantic_enabled:
+            attributes["semanticKeyframes"] = {
+                "embeddingInferenceCalls": self.embedding_inference_calls,
+                "embeddingDimension": self.embedding_dimension,
+                "embeddingModel": (
+                    None
+                    if self.embedding_model is None
+                    else {
+                        "name": self.embedding_model.name,
+                        "version": self.embedding_model.version,
+                        "digest": self.embedding_model.digest,
+                        "runtime": self.embedding_model.runtime,
+                    }
+                ),
+                "semanticDuplicatesRejected": rejections.get("semanticDuplicate", 0),
+            }
+        return attributes
 
 
 def _run_ffmpeg_frame(
@@ -381,19 +446,58 @@ def _image_features(path: Path) -> tuple[int, int, float, float, float]:
     return width, height, sharpness, exposure, ocr_proxy
 
 
-def extract_ranked_frames(
+def _frame_embedding_provider(settings: WorkerSettings) -> FrameEmbeddingProvider | None:
+    """Return the configured provider, or None when semantic selection is off.
+
+    Disabled mode never constructs a provider, so no inference runtime or model
+    file is touched. Enabled mode fails closed on a missing configuration or
+    model instead of degrading to pHash-only selection.
+    """
+
+    if not settings.investigation_semantic_keyframes_enabled:
+        return None
+    model_path = settings.investigation_frame_embedding_model_path
+    if model_path is None or not model_path.strip():
+        raise JobFailure(
+            FailureCode.INVALID_SETTINGS,
+            "semantic keyframe selection is enabled, but no frame embedding model path "
+            "is configured",
+        )
+    return OnnxClipFrameEmbeddingProvider(Path(model_path))
+
+
+def _selection_config(settings: WorkerSettings) -> KeyframeSelectionConfig:
+    if not settings.investigation_semantic_keyframes_enabled:
+        return KeyframeSelectionConfig(
+            max_keyframes=settings.investigation_max_keyframes,
+            max_per_shot=3,
+            selector_version=_SELECTOR_VERSION,
+        )
+    # Soft term (weight) and hard gate (threshold) are configured independently
+    # and keep their distinct meanings inside the Apache selector.
+    return KeyframeSelectionConfig(
+        max_keyframes=settings.investigation_max_keyframes,
+        max_per_shot=3,
+        semantic_similarity_threshold=settings.investigation_semantic_similarity_threshold,
+        selector_version=_SEMANTIC_SELECTOR_VERSION,
+        weights=SelectionWeights(semantic_novelty=settings.investigation_semantic_novelty_weight),
+    )
+
+
+def extract_candidate_frames(
     media_path: Path,
     workspace: Path,
     *,
     source_sha256: str,
     duration_seconds: float,
     settings: WorkerSettings,
+    embedding_provider: FrameEmbeddingProvider | None = None,
 ) -> tuple[ExtractedFrame, ...]:
-    """Uniform fallback extraction followed by open deterministic ranking.
+    """Uniformly sample candidate frames and compute their cheap descriptors.
 
-    PySceneDetect can replace this descriptor provider without changing the
-    selector or evidence contract.  Sampling twice the publication bound
-    gives the deduper room to reject weak/near-identical frames.
+    When an embedding provider is supplied every candidate is embedded exactly
+    once here; the selector later reuses ``FrameDescriptor.embedding`` for every
+    comparison, so ranking never re-runs the model.
     """
 
     candidate_count = min(settings.investigation_max_keyframes * 2, 48)
@@ -424,35 +528,103 @@ def extract_ranked_frames(
                 (int(previous_phash, 16) ^ int(frame_phash, 16)).bit_count() / 32.0,
             )
         previous_phash = frame_phash
-        descriptor = FrameDescriptor(
-            frame_id=f"frame-{index:03d}",
-            artifact_id=f"frame-{digest[:20]}",
-            source_content_sha256=source_sha256,
-            content_sha256=digest,
-            shot_index=index,
-            time_ms=round(seconds * 1000),
-            size_bytes=len(body),
-            width=width,
-            height=height,
-            perceptual_hash=frame_phash,
-            sharpness=sharpness,
-            exposure_quality=exposure,
-            novelty=novelty,
-            ocr_density=ocr_proxy,
-            motion_stability=0.75,
+        embedding = (
+            embedding_provider.embed_frame(destination) if embedding_provider is not None else None
         )
+        try:
+            descriptor = FrameDescriptor(
+                frame_id=f"frame-{index:03d}",
+                artifact_id=f"frame-{digest[:20]}",
+                source_content_sha256=source_sha256,
+                content_sha256=digest,
+                shot_index=index,
+                time_ms=round(seconds * 1000),
+                size_bytes=len(body),
+                width=width,
+                height=height,
+                perceptual_hash=frame_phash,
+                sharpness=sharpness,
+                exposure_quality=exposure,
+                novelty=novelty,
+                ocr_density=ocr_proxy,
+                motion_stability=0.75,
+                embedding=embedding,
+            )
+        except ValueError as error:
+            raise JobFailure(
+                FailureCode.PIPELINE_FAILED, "extracted keyframe descriptor is invalid"
+            ) from error
         extracted.append(ExtractedFrame(descriptor=descriptor, path=destination))
+    return tuple(extracted)
 
-    selection = select_keyframes(
-        tuple(item.descriptor for item in extracted),
-        config=KeyframeSelectionConfig(
-            max_keyframes=settings.investigation_max_keyframes,
-            max_per_shot=3,
-            selector_version="ffmpeg-uniform+heuristic-v1",
-        ),
+
+def rank_candidate_frames(
+    candidates: tuple[ExtractedFrame, ...],
+    *,
+    settings: WorkerSettings,
+    embedding_provider: FrameEmbeddingProvider | None = None,
+) -> RankedFrames:
+    """Run the open deterministic selector over already-described candidates."""
+
+    config = _selection_config(settings)
+    try:
+        selection = select_keyframes(tuple(item.descriptor for item in candidates), config=config)
+    except ValueError as error:
+        raise JobFailure(
+            FailureCode.PIPELINE_FAILED, "keyframe selection input is invalid"
+        ) from error
+    by_artifact = {item.descriptor.artifact_id: item for item in candidates}
+    selected = tuple(
+        replace(by_artifact[keyframe.artifact.artifact_id], keyframe=keyframe)
+        for keyframe in selection.selected
     )
-    by_artifact = {item.descriptor.artifact_id: item for item in extracted}
-    return tuple(by_artifact[item.artifact.artifact_id] for item in selection.selected)
+    embedded = [item.descriptor.embedding for item in candidates if item.descriptor.embedding]
+    return RankedFrames(
+        selected=selected,
+        rejected=selection.rejected,
+        candidate_count=len(candidates),
+        selector_version=selection.selector_version,
+        semantic_enabled=settings.investigation_semantic_keyframes_enabled,
+        embedding_inference_calls=len(embedded),
+        embedding_dimension=len(embedded[0]) if embedded else None,
+        embedding_model=embedding_provider.provenance if embedding_provider is not None else None,
+    )
+
+
+def extract_ranked_frames(
+    media_path: Path,
+    workspace: Path,
+    *,
+    source_sha256: str,
+    duration_seconds: float,
+    settings: WorkerSettings,
+    embedding_provider: FrameEmbeddingProvider | None = None,
+) -> RankedFrames:
+    """Uniform fallback extraction followed by open deterministic ranking.
+
+    PySceneDetect can replace this descriptor provider without changing the
+    selector or evidence contract.  Sampling twice the publication bound
+    gives the deduper room to reject weak/near-identical frames.  The
+    embedding provider is injected here (or built from settings when semantic
+    selection is enabled) and never instantiated inside the Apache selector.
+    """
+
+    provider = (
+        embedding_provider
+        if embedding_provider is not None
+        else _frame_embedding_provider(settings)
+    )
+    if not settings.investigation_semantic_keyframes_enabled:
+        provider = None
+    candidates = extract_candidate_frames(
+        media_path,
+        workspace,
+        source_sha256=source_sha256,
+        duration_seconds=duration_seconds,
+        settings=settings,
+        embedding_provider=provider,
+    )
+    return rank_candidate_frames(candidates, settings=settings, embedding_provider=provider)
 
 
 def _load_images(frames: tuple[ExtractedFrame, ...]) -> list[str]:
@@ -678,6 +850,7 @@ def _evidence_from_observations(
     candidates: tuple[CandidatePrior, ...],
     *,
     batch_index: int,
+    selector_version: str = _SELECTOR_VERSION,
 ) -> tuple[EvidenceItem, ...]:
     evidence: list[EvidenceItem] = []
     for index, item in enumerate(observations):
@@ -719,7 +892,7 @@ def _evidence_from_observations(
                 bbox_xywh=bbox,
                 attributes={
                     "frameSha256": frame.descriptor.content_sha256,
-                    "selector": "ffmpeg-uniform+heuristic-v1",
+                    "selector": selector_version,
                     "modelCorrelationGroup": item.correlationGroup,
                 },
             )
@@ -845,9 +1018,29 @@ def _fixture_observation(
     return candidates, evidence
 
 
+def _keyframe_attributes(item: ExtractedFrame, rank: int, selector_version: str) -> dict:
+    attributes: dict = {
+        "role": "keyframe",
+        "frameSha256": item.descriptor.content_sha256,
+        "selector": selector_version,
+        "rank": rank,
+        "width": item.descriptor.width,
+        "height": item.descriptor.height,
+    }
+    keyframe = item.keyframe
+    if keyframe is not None and keyframe.semantic_novelty is not None:
+        # Analyst-inspectable semantic signal; the raw vector is never serialized.
+        attributes["informationScore"] = keyframe.information_score
+        attributes["embeddingSimilarityMax"] = keyframe.embedding_similarity_max
+        attributes["semanticNovelty"] = keyframe.semantic_novelty
+    return attributes
+
+
 def _keyframe_evidence(
     frames: tuple[ExtractedFrame, ...],
     candidates: tuple[CandidatePrior, ...],
+    *,
+    selector_version: str = _SELECTOR_VERSION,
 ) -> tuple[EvidenceItem, ...]:
     """Represent ranked frame metadata in the durable evidence ledger.
 
@@ -874,14 +1067,7 @@ def _keyframe_evidence(
             reliability=1.0,
             contributions=(EvidenceContribution(neutral_candidate.candidate_id, 0.0),),
             frame_time_ms=item.descriptor.time_ms,
-            attributes={
-                "role": "keyframe",
-                "frameSha256": item.descriptor.content_sha256,
-                "selector": "ffmpeg-uniform+heuristic-v1",
-                "rank": rank,
-                "width": item.descriptor.width,
-                "height": item.descriptor.height,
-            },
+            attributes=_keyframe_attributes(item, rank, selector_version),
         )
         for rank, item in enumerate(frames, start=1)
     )
@@ -930,13 +1116,14 @@ def run_local_observation(
         runtime_version = _ollama_runtime_version(settings)
         extraction_started_at = datetime.now(UTC)
         extraction_monotonic = time.monotonic()
-        frames = extract_ranked_frames(
+        ranked = extract_ranked_frames(
             media_path,
             workspace,
             source_sha256=source_sha256,
             duration_seconds=duration_seconds,
             settings=settings,
         )
+        frames = ranked.selected
         if not frames:
             raise JobFailure(FailureCode.PIPELINE_FAILED, "no valid keyframes were selected")
         extraction_completed_at = datetime.now(UTC)
@@ -972,7 +1159,13 @@ def run_local_observation(
             for index, item in enumerate(initial.candidates)
         )
         evidence_parts = [
-            _evidence_from_observations(initial.evidence, batches[0], candidates, batch_index=0)
+            _evidence_from_observations(
+                initial.evidence,
+                batches[0],
+                candidates,
+                batch_index=0,
+                selector_version=ranked.selector_version,
+            )
         ]
         for batch_index, batch in enumerate(batches[1:], start=1):
             continuation_prompt = _prompt(continuation=True, candidates=initial.candidates)
@@ -999,11 +1192,12 @@ def run_local_observation(
                     batch,
                     candidates,
                     batch_index=batch_index,
+                    selector_version=ranked.selector_version,
                 )
             )
-        evidence = _keyframe_evidence(frames, candidates) + tuple(
-            item for part in evidence_parts for item in part
-        )
+        evidence = _keyframe_evidence(
+            frames, candidates, selector_version=ranked.selector_version
+        ) + tuple(item for part in evidence_parts for item in part)
         prompt_digest = _request_manifest_digest(request_manifest)
         if _ollama_model_digest(settings) != model_digest:
             raise JobFailure(
@@ -1086,8 +1280,9 @@ def run_local_observation(
         started_at=extraction_started_at,
         completed_at=extraction_completed_at,
         output_evidence_ids=keyframe_ids,
-        tool_version="ffmpeg-uniform+heuristic-v1",
+        tool_version=ranked.selector_version,
         latency_ms=extraction_latency_ms,
+        attributes=ranked.step_attributes(),
     )
     return replace(
         result,

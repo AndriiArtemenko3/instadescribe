@@ -10,9 +10,11 @@ from instadescribe_investigation_core import (
     binary_precision,
     expected_calibration_error,
     haversine_km,
+    mean_reciprocal_rank,
     median_geolocation_error_km,
     multiclass_brier_score,
     ndcg_at_k,
+    retrieval_hit_rate_at_k,
     retrieval_recall_at_k,
     top_k_accuracy,
 )
@@ -31,6 +33,20 @@ def test_ranking_and_retrieval_metrics() -> None:
     assert ndcg_at_k(retrieval, k=3) == pytest.approx((1 + 1 / 2) / (1 + 1 / 1.584962500721156))
 
 
+def test_hit_rate_and_mean_reciprocal_rank() -> None:
+    examples = [
+        RetrievalPrediction(("a", "b", "c"), frozenset({"a", "c"})),
+        RetrievalPrediction(("x", "y", "z"), frozenset({"z"})),
+        RetrievalPrediction(("p", "q"), frozenset({"missing"})),
+    ]
+
+    assert retrieval_hit_rate_at_k(examples, k=1) == pytest.approx(1 / 3)
+    assert retrieval_hit_rate_at_k(examples, k=3) == pytest.approx(2 / 3)
+    assert mean_reciprocal_rank(examples) == pytest.approx((1 + 1 / 3 + 0) / 3)
+    with pytest.raises(ValueError, match="k must be positive"):
+        retrieval_hit_rate_at_k(examples, k=0)
+
+
 def test_retrieval_metrics_reject_duplicate_ranked_ids() -> None:
     duplicated = [RetrievalPrediction(("a", "a"), frozenset({"a"}))]
 
@@ -38,6 +54,10 @@ def test_retrieval_metrics_reject_duplicate_ranked_ids() -> None:
         retrieval_recall_at_k(duplicated, k=2)
     with pytest.raises(ValueError, match="must be unique"):
         ndcg_at_k(duplicated, k=2)
+    with pytest.raises(ValueError, match="must be unique"):
+        mean_reciprocal_rank(duplicated)
+    with pytest.raises(ValueError, match="must be unique"):
+        retrieval_hit_rate_at_k(duplicated, k=1)
 
 
 def test_geolocation_and_calibration_metrics() -> None:

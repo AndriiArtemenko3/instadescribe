@@ -1,9 +1,22 @@
-"""Deterministic, dependency-light shot/keyframe selection primitives."""
+"""Deterministic, dependency-light shot/keyframe selection primitives.
+
+Redundant frames are detected in two independent layers:
+
+- perceptual redundancy: DCT pHash + Hamming distance rejects frames whose pixels are
+  near-identical (``perceptual_hash_distance``);
+- semantic redundancy: optional embedding vectors + cosine similarity score how much
+  of a candidate's meaning is already covered by selected keyframes
+  (``semantic_novelty``).
+
+Embeddings are optional. Without them, or with the semantic weight and threshold left
+at their defaults, selection is identical to the pHash-only behaviour.
+"""
 
 from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -11,6 +24,7 @@ from typing import Protocol, runtime_checkable
 
 from .models import ArtifactRef, Keyframe
 from .serialization import canonical_json
+from .vectors import cosine_similarity, validate_embedding
 
 
 def _validate_sha256(value: str, field_name: str) -> None:
@@ -63,6 +77,9 @@ class FrameDescriptor:
     novelty: float = 0
     ocr_density: float = 0
     motion_stability: float = 0
+    # Optional semantic embedding produced by a FrameEmbeddingProvider. Only its
+    # direction matters: the selector compares embeddings with cosine similarity.
+    embedding: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
         for value, field_name in (
@@ -93,6 +110,8 @@ class FrameDescriptor:
             "motion_stability",
         ):
             _bounded_score(getattr(self, field_name), field_name)
+        if self.embedding is not None:
+            validate_embedding(self.embedding, "embedding")
 
     def artifact(self) -> ArtifactRef:
         return ArtifactRef(
@@ -112,6 +131,9 @@ class SelectionWeights:
     novelty: float = 0.30
     ocr_density: float = 0.20
     motion_stability: float = 0.10
+    # Weight of the embedding-based semantic novelty term. Zero keeps the score
+    # identical to the pHash-only selector even when embeddings are present.
+    semantic_novelty: float = 0.0
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -120,6 +142,7 @@ class SelectionWeights:
             "novelty",
             "ocr_density",
             "motion_stability",
+            "semantic_novelty",
         ):
             value = getattr(self, field_name)
             if not math.isfinite(value) or value < 0:
@@ -129,12 +152,15 @@ class SelectionWeights:
 
     @property
     def total(self) -> float:
+        # Keep this summation order identical to information_score so that a frame
+        # scoring one on every feature divides to exactly 1.0.
         return (
             self.sharpness
             + self.exposure_quality
             + self.novelty
             + self.ocr_density
             + self.motion_stability
+            + self.semantic_novelty
         )
 
 
@@ -144,6 +170,9 @@ class KeyframeSelectionConfig:
     max_per_shot: int = 3
     minimum_time_distance_ms: int = 500
     perceptual_hash_distance: int = 6
+    # Optional layer-2 gate: reject a candidate whose highest cosine similarity to an
+    # already-selected keyframe reaches this value. None disables the gate.
+    semantic_similarity_threshold: float | None = None
     selector_version: str = "heuristic-v1"
     weights: SelectionWeights = SelectionWeights()
 
@@ -152,13 +181,25 @@ class KeyframeSelectionConfig:
             raise ValueError("keyframe limits must be positive")
         if self.minimum_time_distance_ms < 0 or self.perceptual_hash_distance < 0:
             raise ValueError("dedupe thresholds must not be negative")
+        if self.semantic_similarity_threshold is not None and (
+            not math.isfinite(self.semantic_similarity_threshold)
+            or not -1 <= self.semantic_similarity_threshold <= 1
+        ):
+            raise ValueError("semantic_similarity_threshold must be finite and between -1 and 1")
         if not self.selector_version.strip():
             raise ValueError("selector_version must not be empty")
+
+    @property
+    def semantic_enabled(self) -> bool:
+        """True when embeddings influence ranking or rejection."""
+
+        return self.weights.semantic_novelty > 0 or self.semantic_similarity_threshold is not None
 
 
 class FrameRejectionReason(StrEnum):
     EXACT_DUPLICATE = "exactDuplicate"
     PERCEPTUAL_DUPLICATE = "perceptualDuplicate"
+    SEMANTIC_DUPLICATE = "semanticDuplicate"
     TEMPORAL_NEAR_DUPLICATE = "temporalNearDuplicate"
     SHOT_LIMIT = "shotLimit"
     GLOBAL_LIMIT = "globalLimit"
@@ -206,14 +247,25 @@ class FrameDescriptorProvider(Protocol):
 def information_score(
     frame: FrameDescriptor,
     weights: SelectionWeights | None = None,
+    *,
+    semantic_novelty: float = 1.0,
 ) -> float:
+    """Explicit weighted mean of the scalar features.
+
+    ``semantic_novelty`` is supplied by the selector because it depends on which
+    keyframes were already chosen; it defaults to fully novel so callers scoring a
+    frame in isolation get the pre-embedding behaviour.
+    """
+
     selected_weights = weights or SelectionWeights()
+    _bounded_score(semantic_novelty, "semantic_novelty")
     weighted = (
         selected_weights.sharpness * frame.sharpness
         + selected_weights.exposure_quality * frame.exposure_quality
         + selected_weights.novelty * frame.novelty
         + selected_weights.ocr_density * frame.ocr_density
         + selected_weights.motion_stability * frame.motion_stability
+        + selected_weights.semantic_novelty * semantic_novelty
     )
     return weighted / selected_weights.total
 
@@ -226,6 +278,51 @@ def perceptual_hash_distance(left: str, right: str) -> int | None:
     if len(left) != len(right):
         return None
     return (int(left, 16) ^ int(right, 16)).bit_count()
+
+
+def _novelty_from_similarity(embedding_similarity_max: float | None) -> float:
+    """Map the highest cosine similarity onto a novelty score in ``[0, 1]``.
+
+    - No comparison possible (``None``): the candidate is maximally novel (1.0).
+    - Similarity in ``[0, 1]``: novelty is ``1 - similarity``.
+    - Negative similarity: the embeddings point away from each other, which is at
+      least as novel as orthogonal, so novelty saturates at 1.0 rather than
+      exceeding it. Callers wanting the signed value should read the raw maximum.
+    """
+
+    if embedding_similarity_max is None:
+        return 1.0
+    return 1.0 - max(0.0, embedding_similarity_max)
+
+
+def semantic_novelty(
+    candidate_embedding: Sequence[float],
+    selected_embeddings: Sequence[Sequence[float]],
+) -> tuple[float | None, float]:
+    """Return ``(embedding_similarity_max, novelty)`` for a candidate embedding.
+
+    ``embedding_similarity_max`` is the highest cosine similarity between the
+    candidate and any selected embedding (``None`` when nothing was selected yet) and
+    ``novelty`` follows ``_novelty_from_similarity``.
+    """
+
+    if not selected_embeddings:
+        return None, _novelty_from_similarity(None)
+    highest = max(cosine_similarity(candidate_embedding, item) for item in selected_embeddings)
+    return highest, _novelty_from_similarity(highest)
+
+
+def _validate_frame_embeddings(
+    frames: tuple[FrameDescriptor, ...],
+    config: KeyframeSelectionConfig,
+) -> None:
+    dimensions = {len(frame.embedding) for frame in frames if frame.embedding is not None}
+    if len(dimensions) > 1:
+        raise ValueError("frame embeddings must share one dimension")
+    if config.semantic_enabled and any(frame.embedding is None for frame in frames):
+        # A frame without an embedding would otherwise receive full novelty credit,
+        # which is a bonus rather than a neutral value. Fail closed instead.
+        raise ValueError("every frame needs an embedding when semantic novelty is enabled")
 
 
 def _selection_input_digest(
@@ -254,31 +351,54 @@ def _keyframe_cache_key(
     return hashlib.sha256(canonical_json(payload).encode()).hexdigest()
 
 
+@dataclass(frozen=True, slots=True)
+class _SemanticState:
+    """Highest cosine similarity seen so far against accepted keyframes."""
+
+    similarity_max: float | None = None
+    most_similar_frame_id: str | None = None
+
+
 def select_keyframes(
     frames: tuple[FrameDescriptor, ...],
     *,
     config: KeyframeSelectionConfig | None = None,
 ) -> KeyframeSelection:
-    """Rank and deduplicate descriptors without loading pixels or model weights."""
+    """Rank and deduplicate descriptors without loading pixels or model weights.
+
+    Frames are picked greedily. Each step re-scores the remaining candidates against
+    the keyframes accepted so far, which is what lets the semantic novelty term see
+    the current selection; with the semantic weight at zero the ranking key equals
+    the static information score, so the pick order matches a one-off sort.
+    """
 
     selected_config = config or KeyframeSelectionConfig()
     frame_ids = [frame.frame_id for frame in frames]
     if len(frame_ids) != len(set(frame_ids)):
         raise ValueError("frame IDs must be unique")
+    _validate_frame_embeddings(frames, selected_config)
     input_digest = _selection_input_digest(frames, selected_config)
-    ranked = sorted(
-        frames,
-        key=lambda frame: (
-            -information_score(frame, selected_config.weights),
-            frame.time_ms,
-            frame.frame_id,
-        ),
-    )
+    weights = selected_config.weights
+    threshold = selected_config.semantic_similarity_threshold
+
+    semantic: dict[str, _SemanticState] = {frame.frame_id: _SemanticState() for frame in frames}
+
+    def step_score(frame: FrameDescriptor) -> float:
+        novelty = _novelty_from_similarity(semantic[frame.frame_id].similarity_max)
+        return information_score(frame, weights, semantic_novelty=novelty)
+
+    remaining = list(frames)
     accepted: list[FrameDescriptor] = []
+    selected: list[Keyframe] = []
     rejected: list[FrameRejection] = []
     shot_counts: dict[int, int] = {}
 
-    for frame in ranked:
+    while remaining:
+        frame = min(
+            remaining,
+            key=lambda item: (-step_score(item), item.time_ms, item.frame_id),
+        )
+        remaining.remove(frame)
         if len(accepted) >= selected_config.max_keyframes:
             rejected.append(FrameRejection(frame.frame_id, FrameRejectionReason.GLOBAL_LIMIT))
             continue
@@ -321,6 +441,20 @@ def select_keyframes(
                 )
             )
             continue
+        state = semantic[frame.frame_id]
+        if (
+            threshold is not None
+            and state.similarity_max is not None
+            and state.similarity_max >= threshold
+        ):
+            rejected.append(
+                FrameRejection(
+                    frame.frame_id,
+                    FrameRejectionReason.SEMANTIC_DUPLICATE,
+                    state.most_similar_frame_id,
+                )
+            )
+            continue
         temporal = next(
             (
                 item
@@ -342,23 +476,40 @@ def select_keyframes(
         if shot_counts.get(frame.shot_index, 0) >= selected_config.max_per_shot:
             rejected.append(FrameRejection(frame.frame_id, FrameRejectionReason.SHOT_LIMIT))
             continue
+
+        selected.append(
+            Keyframe(
+                keyframe_id=f"keyframe-{frame.frame_id}",
+                artifact=frame.artifact(),
+                shot_index=frame.shot_index,
+                rank=len(accepted),
+                information_score=step_score(frame),
+                quality_score=_quality_score(frame),
+                selector_cache_key=_keyframe_cache_key(frame, selected_config, input_digest),
+                embedding_similarity_max=state.similarity_max,
+                semantic_novelty=(
+                    None
+                    if frame.embedding is None
+                    else _novelty_from_similarity(state.similarity_max)
+                ),
+            )
+        )
         accepted.append(frame)
         shot_counts[frame.shot_index] = shot_counts.get(frame.shot_index, 0) + 1
+        if frame.embedding is None:
+            continue
+        # The maximum over a growing set only ever rises, so each remaining
+        # candidate needs one cosine against the newly accepted keyframe.
+        for other in remaining:
+            if other.embedding is None:
+                continue
+            similarity = cosine_similarity(other.embedding, frame.embedding)
+            current = semantic[other.frame_id]
+            if current.similarity_max is None or similarity > current.similarity_max:
+                semantic[other.frame_id] = _SemanticState(similarity, frame.frame_id)
 
-    selected = tuple(
-        Keyframe(
-            keyframe_id=f"keyframe-{frame.frame_id}",
-            artifact=frame.artifact(),
-            shot_index=frame.shot_index,
-            rank=rank,
-            information_score=information_score(frame, selected_config.weights),
-            quality_score=_quality_score(frame),
-            selector_cache_key=_keyframe_cache_key(frame, selected_config, input_digest),
-        )
-        for rank, frame in enumerate(accepted)
-    )
     return KeyframeSelection(
-        selected=selected,
+        selected=tuple(selected),
         rejected=tuple(rejected),
         selector_version=selected_config.selector_version,
         input_digest=input_digest,

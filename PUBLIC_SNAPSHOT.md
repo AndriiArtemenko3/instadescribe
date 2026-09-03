@@ -26,6 +26,8 @@ root BUSL-1.1 license.
 - the autonomous Apache-2.0 investigation baseline, its tests and nested license;
 - the tenant-scoped investigation domain, Browser API, dedicated worker path and
   deterministic no-model acceptance fixtures;
+- the authenticated investigation workspace, strict browser response parser,
+  desktop/mobile synthetic fixture and PII-free generated capture;
 - public security, contribution and licensing policies.
 
 ## Excluded material
@@ -48,11 +50,13 @@ rewrite or delete private Git history.
 
 The API-first audio-description beta may be described as **implemented and locally
 verified**. The video-investigation foundation may be described as implemented and
-verified by a **deterministic, no-model fixture**. It must not be described as an
-investigation workspace, validated live model, connected retrieval, persisted
-replay, benchmark or deployed service. The public AWS environment is historical
-Cloud Core v0.1 evidence, not evidence that either current product line is deployed.
-Customer beta and npm publication remain pending separate approval and evidence.
+verified by **deterministic, no-model fixtures**. Its authenticated Next.js
+investigation workspace may be described as implemented and browser-verified in
+source. The workspace fixture demonstrates contract rendering and role controls; it
+is not a validated live model, connected retrieval, persisted replay, benchmark or
+deployed service. The public AWS environment is historical Cloud Core v0.1 evidence,
+not evidence that either current product line is deployed. Customer beta and npm
+publication remain pending separate approval and evidence.
 
 ## Pre-push gate
 
@@ -64,4 +68,5 @@ Before any public push, verify the candidate branch with:
 4. license-scope checks, Apache investigation-core distribution verification and
    clean SDK/CLI package tarballs containing MIT licenses;
 5. dependency audits and the repository's full test/build/typecheck matrix;
-6. a reviewed diff showing only the intended public snapshot.
+6. desktop/mobile browser inspection of the deterministic workspace fixture;
+7. a reviewed diff showing only the intended public snapshot.
