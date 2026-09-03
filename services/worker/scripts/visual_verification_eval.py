@@ -6,11 +6,15 @@ clip, CC BY 3.0, Blender Foundation) with transformations chosen to exercise
 local-feature robustness rather than embedding similarity:
 
 - positives per query: the frame 0.5 s later (same scene, different pixels) and
-  five transformed copies of the query itself (crop, scale, rotation,
-  brightness, perspective warp, partial occlusion);
+  seven transformed copies of the query itself (crop, scale, rotation,
+  brightness, perspective warp, partial occlusion, mirror);
 - negatives: every other query's frames (semantically similar film scenes that
   share no geometry — the case retrieval ranks highly and RANSAC must reject)
   plus synthetic images.
+
+Note on K: each query owns eight positives, so a Top-K with K <= 8 can contain
+only positives on this corpus and verification has nothing to reject there.
+Running a larger K (10, 12) is what exercises the retrieval-false-positive path.
 
 Two modes:
 
@@ -82,9 +86,15 @@ class BenchmarkQuery:
 
 
 def _transformed_positives(source: Path, directory: Path, stem: str) -> list[tuple[str, Path]]:
-    """Crop, scale, rotation, brightness, perspective warp and occlusion copies."""
+    """Crop, scale, rotation, brightness, perspective, occlusion and mirror copies.
 
-    from PIL import Image, ImageDraw, ImageEnhance
+    The mirrored copy matches the retrieval benchmark's flipped positive and is
+    kept deliberately: SIFT descriptors are not mirror invariant, so this is the
+    corpus's designed case where semantic retrieval succeeds and classical
+    geometric verification is expected to fail.
+    """
+
+    from PIL import Image, ImageDraw, ImageEnhance, ImageOps
 
     outputs: list[tuple[str, Path]] = []
     with Image.open(source) as opened:
@@ -132,6 +142,11 @@ def _transformed_positives(source: Path, directory: Path, stem: str) -> list[tup
     occlusion_path = directory / f"{stem}-occluded.jpg"
     occluded.save(occlusion_path, quality=92)
     outputs.append((f"{stem}:occlusion", occlusion_path))
+
+    mirrored = ImageOps.mirror(image)
+    mirror_path = directory / f"{stem}-mirror.jpg"
+    mirrored.save(mirror_path, quality=92)
+    outputs.append((f"{stem}:mirror", mirror_path))
     return outputs
 
 
@@ -237,6 +252,22 @@ def evaluate(
         "negative": {"matches": [], "inliers": [], "ratio": [], "cosine": []},
     }
     timings = {"feature": [], "matching": [], "ransac": [], "total": []}
+    # Where candidates fall out of the funnel, split by ground truth.
+    attrition = {
+        side: dict.fromkeys(
+            (
+                "retrieved",
+                "sufficientFeatureMatches",
+                "homographyFound",
+                "sufficientInliers",
+                "sufficientInlierRatio",
+                "verified",
+            ),
+            0,
+        )
+        for side in ("positive", "negative")
+    }
+    config = matcher.config
 
     for query in queries:
         candidate_ids = (
@@ -260,7 +291,29 @@ def evaluate(
             )
             relevant = candidate_id in query.positives
             predictions.append(VerificationPrediction(verified=match.verified, relevant=relevant))
-            bucket = stats["positive" if relevant else "negative"]
+            side = "positive" if relevant else "negative"
+            funnel = attrition[side]
+            funnel["retrieved"] += 1
+            if match.feature_matches >= config.minimum_feature_matches:
+                funnel["sufficientFeatureMatches"] += 1
+            # A homography was attempted and returned iff RANSAC produced a
+            # reprojection error (inliers exist) or the reason names a later stage.
+            if match.rejection_reason not in {
+                "insufficientFeatures",
+                "insufficientMatches",
+                "homographyNotFound",
+            }:
+                funnel["homographyFound"] += 1
+            if match.ransac_inliers >= config.minimum_ransac_inliers:
+                funnel["sufficientInliers"] += 1
+            if (
+                match.ransac_inlier_ratio is not None
+                and match.ransac_inlier_ratio >= config.minimum_ransac_inlier_ratio
+            ):
+                funnel["sufficientInlierRatio"] += 1
+            if match.verified:
+                funnel["verified"] += 1
+            bucket = stats[side]
             bucket["matches"].append(float(match.feature_matches))
             bucket["inliers"].append(float(match.ransac_inliers))
             if match.ransac_inlier_ratio is not None:
@@ -287,6 +340,18 @@ def evaluate(
         rows.append({"query": query.query_id, "candidates": query_rows})
 
     counts = verification_confusion(predictions)
+    # Per-query pipeline effect: does verification keep the relevant candidate
+    # (hit rate) and how much does it clean up the retrieved set (precision)?
+    retrieval_hits = sum(any(row["relevant"] for row in entry["candidates"]) for entry in rows)
+    verified_hits = sum(
+        any(row["relevant"] and row["verified"] for row in entry["candidates"]) for entry in rows
+    )
+    precision_at_k = statistics.mean(
+        sum(row["relevant"] for row in entry["candidates"]) / len(entry["candidates"])
+        for entry in rows
+        if entry["candidates"]
+    )
+    verified_total = counts["tp"] + counts["fp"]
     return {
         "pairs": len(predictions),
         "positivePairs": counts["tp"] + counts["fn"],
@@ -297,6 +362,17 @@ def evaluate(
             "recall": verification_recall(predictions),
             "f1": verification_f1(predictions),
         },
+        "pipeline": {
+            "queries": len(rows),
+            "retrievalHitRate": retrieval_hits / len(rows) if rows else None,
+            "verifiedHitRate": verified_hits / len(rows) if rows else None,
+            "retrievalPrecisionAtK": precision_at_k,
+            # None (not zero) when verification accepted nothing: the ratio is
+            # undefined, and reporting 0 would misstate a total abstention.
+            "verifiedPrecision": (counts["tp"] / verified_total) if verified_total else None,
+            "verifiedPairs": verified_total,
+        },
+        "attrition": attrition,
         "separation": {
             side: {
                 "goodMatches": _distribution(values["matches"]),
@@ -463,6 +539,34 @@ def main() -> int:
     print(f"TP {counts['tp']}  FP {counts['fp']}  TN {counts['tn']}  FN {counts['fn']}")
     for name, value in report["metrics"].items():
         print(f"  {name}: {'n/a' if value is None else f'{value:.3f}'}")
+    pipeline = report["pipeline"]
+    verified_precision = pipeline["verifiedPrecision"]
+    print(
+        f"pipeline: retrieval P@K {pipeline['retrievalPrecisionAtK']:.3f} -> verified precision "
+        + (
+            "undefined (nothing verified)"
+            if verified_precision is None
+            else f"{verified_precision:.3f}"
+        )
+        + f" over {pipeline['verifiedPairs']} verified pairs"
+    )
+    print(
+        f"          retrieval hit rate {pipeline['retrievalHitRate']:.3f} -> "
+        f"verified hit rate {pipeline['verifiedHitRate']:.3f} "
+        f"({pipeline['queries']} queries)"
+    )
+    print("\nstage attrition (relevant | irrelevant):")
+    for stage in (
+        "retrieved",
+        "sufficientFeatureMatches",
+        "homographyFound",
+        "sufficientInliers",
+        "sufficientInlierRatio",
+        "verified",
+    ):
+        positive = report["attrition"]["positive"][stage]
+        negative = report["attrition"]["negative"][stage]
+        print(f"  {stage:26s} {positive:>4} | {negative:>4}")
     timing = report["verificationTimingMilliseconds"]
     print(
         "verification per pair: "
