@@ -292,9 +292,13 @@ a match cannot double-count it. `VisualEvidenceConfig.enabled` is **False** by
 default: matches and their diagnostics are still produced, but nothing reaches
 `update_beliefs` until the feature is switched on.
 
-Not yet wired: the `evidence_items` table's `kind` CHECK constraint does not
-include `visualMatch`, so persisting this evidence kind requires a migration
-before the adapter can be used on the worker execution path.
+Persistence: migration `0015_visual_match_evidence_kind` adds `visualMatch` to
+the `evidence_items.kind` allowlist alongside the existing kinds, so a converted
+match can be stored. `visual` keeps its meaning — a visual observation of a
+frame — while `visualMatch` records a verified correspondence between a query
+frame and a reference candidate. Widening the allowlist changes storage only:
+the adapter stays disabled by default, and nothing yet writes these rows on the
+worker execution path.
 
 **Embedding model artifact provenance.** The provider runs
 `Xenova/clip-vit-base-patch32`, revision `d15189d7028b43f1d3e65039190477f6af591c2a`,
@@ -393,9 +397,9 @@ This workspace-backed foundation does not claim:
 - persisted deterministic replay;
 - public-web search or approved crop egress;
 - geometric verification wired into worker execution (the SIFT/RANSAC matcher
-  and its evidence adapter exist as a library + benchmark; the adapter is
-  disabled by default and no persistence migration for the `visualMatch`
-  evidence kind exists yet);
+  and its evidence adapter exist as a library + benchmark; the schema accepts
+  the `visualMatch` kind, but the adapter is disabled by default and no
+  execution path writes these rows);
 - calibrated visual-match strength (the +1.0 support is a fixed, uncalibrated
   event weight, not a probability);
 - recording-time estimation, damage/change analysis or event clustering;

@@ -225,7 +225,7 @@ class EvidenceItem(Base):
         ),
         sa.CheckConstraint(
             "kind IN ('keyframe', 'visual', 'ocr', 'audio', 'metadata', 'web', "
-            "'geospatial', 'change')",
+            "'geospatial', 'change', 'visualMatch')",
             name="kind_valid",
         ),
         sa.CheckConstraint("jsonb_typeof(observation) = 'object'", name="observation_object"),
