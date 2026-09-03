@@ -90,6 +90,13 @@ from .serialization import canonical_json, rfc3339, to_primitive
 from .trace import TraceRecorder, read_trace_jsonl, validate_trace, write_trace_jsonl
 from .vectors import cosine_similarity, dot_product, l2_norm, validate_embedding
 from .verification import verify_retrieval_candidates
+from .visual_evidence import (
+    VisualCandidateBinding,
+    VisualEvidenceConfig,
+    visual_evidence_correlation_group,
+    visual_evidence_id,
+    visual_match_to_evidence,
+)
 
 __all__ = [
     "ActionCandidate",
@@ -148,6 +155,8 @@ __all__ = [
     "VisualCandidate",
     "VisualCandidateRetriever",
     "VerificationPrediction",
+    "VisualCandidateBinding",
+    "VisualEvidenceConfig",
     "VisualMatch",
     "VisualMatcher",
     "VisualRetrievalCandidate",
@@ -156,6 +165,9 @@ __all__ = [
     "verification_precision",
     "verification_recall",
     "verify_retrieval_candidates",
+    "visual_evidence_correlation_group",
+    "visual_evidence_id",
+    "visual_match_to_evidence",
     "action_allowed",
     "binary_precision",
     "canonical_json",

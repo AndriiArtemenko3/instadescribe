@@ -265,6 +265,37 @@ signal separation, per-stage latency and a minimum-inlier sensitivity sweep.
 Verification runs offline: OpenCV never touches the network, and the core never
 imports OpenCV.
 
+### Visual-match evidence (library only, disabled by default)
+
+`visual_match_to_evidence` interprets a **verified** `VisualMatch` as one
+`EvidenceItem` of kind `visualMatch` and stops there; belief fusion is the
+existing `update_beliefs` path, unchanged. The rules are deliberate:
+`verified=True` becomes a single fixed `+1.0` contribution at reliability 1.0
+(verification decides whether evidence *exists*, not how strong it is — the raw
+cosine, match count, inlier count, ratio and reprojection error ride along as
+`attributes` diagnostics and never enter the score); `verified=False` produces
+**no** evidence, never negative evidence, because a failed RANSAC means
+"correspondence was not established", not "the hypothesis is false"; and a
+retrieval hit alone is never evidence. The hypothesis is supplied by an explicit
+`VisualCandidateBinding(candidate_id, hypothesis_id, source_observation_id)` —
+retrieval ids and belief-candidate ids are separate identifier spaces, and no
+hypothesis is ever inferred from a candidate id, filename or rank.
+
+Correlation reuses `belief._group_scores` (strongest signed contribution per
+group), with the group keyed on the *observation* —
+`visual:<query_observation_id>:<source_observation_id>` — not the claim, matching
+how frame-derived evidence is grouped. Transformed variants of one reference
+capture therefore share a group and collapse to a single contribution, while a
+different query shot against a different capture contributes independently.
+Evidence identity is `visual-match-<sha256 of the semantic inputs>`, so replaying
+a match cannot double-count it. `VisualEvidenceConfig.enabled` is **False** by
+default: matches and their diagnostics are still produced, but nothing reaches
+`update_beliefs` until the feature is switched on.
+
+Not yet wired: the `evidence_items` table's `kind` CHECK constraint does not
+include `visualMatch`, so persisting this evidence kind requires a migration
+before the adapter can be used on the worker execution path.
+
 **Embedding model artifact provenance.** The provider runs
 `Xenova/clip-vit-base-patch32`, revision `d15189d7028b43f1d3e65039190477f6af591c2a`,
 file `onnx/vision_model.onnx` (sha256
@@ -362,8 +393,11 @@ This workspace-backed foundation does not claim:
 - persisted deterministic replay;
 - public-web search or approved crop egress;
 - geometric verification wired into worker execution (the SIFT/RANSAC matcher
-  exists as a library + benchmark; verified matches produce no evidence and no
-  belief updates yet);
+  and its evidence adapter exist as a library + benchmark; the adapter is
+  disabled by default and no persistence migration for the `visualMatch`
+  evidence kind exists yet);
+- calibrated visual-match strength (the +1.0 support is a fixed, uncalibrated
+  event weight, not a probability);
 - recording-time estimation, damage/change analysis or event clustering;
 - benchmarked accuracy, calibration, recall, latency or memory;
 - a deployed investigation service or production readiness.
