@@ -224,6 +224,30 @@ path setting at it. `services/worker/scripts/keyframe_semantic_eval.py` compares
 baseline and semantic selection on one local video and reports the selected-set
 semantic redundancy.
 
+#### Frame analysis manifest
+
+`services/worker/scripts/frame_analysis_demo.py` exports a per-frame manifest for
+one local video, so frame-level behaviour can be inspected without a database, a
+queue or a second analysis pass. Every value comes from the real path: the worker
+frame extractor, one CLIP embedding per candidate, and the open selector. Each
+frame carries its scalar quality features, the selector's outcome (selected,
+rank, information score, or the rejection reason) and four vector metrics:
+
+| Metric | Meaning |
+|---|---|
+| `clipCentroidSimilarity` | Cosine to the unit-length mean of the normalized frame embeddings; how typical the frame is of the video |
+| `previousFrameSimilarity` | Cosine to the preceding frame in time order; null for the first frame |
+| `nearestSelectedSimilarity` | Highest cosine to any keyframe in the final selected set, excluding the frame itself |
+| `semanticNovelty` | The selector's novelty term, `1 - nearestSelectedSimilarity` clamped to `[0, 1]` |
+
+All four are cosine similarities in `[-1, 1]` — direction comparisons, not
+confidences, probabilities or quality judgements, and the manifest states that
+in its own `metricDefinitions` block so a viewer cannot relabel them. The
+selector's as-of-selection readings are carried separately under `keyframe`,
+because those, not the final-set values, are what produced `informationScore`.
+Raw embedding vectors are never written out; the manifest holds scalars only.
+Output is derived from local media and is git-ignored rather than committed.
+
 ### Visual candidate retrieval (library and benchmark only)
 
 The Apache core now includes exact in-memory retrieval
