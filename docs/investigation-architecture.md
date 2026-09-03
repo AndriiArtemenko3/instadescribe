@@ -248,6 +248,16 @@ because those, not the final-set values, are what produced `informationScore`.
 Raw embedding vectors are never written out; the manifest holds scalars only.
 Output is derived from local media and is git-ignored rather than committed.
 
+The `/frame-analysis` route in the web app is a prototype viewer for that
+manifest. It fetches the file once and steps between frames with buttons or the
+arrow keys; navigation is local state, so it never refetches and never triggers
+an analysis. Semantic and quality metrics are shown in separate panels because
+they are different kinds of measurement, similarities are drawn as coordinates
+on a labelled `-1 / 0 / +1` axis rather than as filled bars, and no label
+presents a cosine as a confidence, probability or accuracy. The route needs no
+session and no database; with no manifest present it explains how to generate
+one.
+
 ### Visual candidate retrieval (library and benchmark only)
 
 The Apache core now includes exact in-memory retrieval

@@ -15,6 +15,9 @@ import { getAvailableTutorial, tutorialProject } from '@/lib/tutorials'
 import { useAppStore } from '@/store/appStore'
 
 const UploadPage = lazy(() => import('@/features/upload/pages/UploadPage'))
+const FrameSimilarityExplorer = lazy(
+  () => import('@/features/frame-analysis/FrameSimilarityExplorer'),
+)
 const HelpPage = lazy(() => import('@/features/dashboard/pages/HelpPage'))
 const SettingsPage = lazy(() => import('@/features/dashboard/pages/SettingsPage'))
 const UsagePage = lazy(() => import('@/features/dashboard/pages/UsagePage'))
@@ -50,6 +53,16 @@ export const router = createBrowserRouter([
   {
     path: '/tutorials',
     element: <TutorialsPage />,
+  },
+  {
+    // Prototype viewer for a locally generated frame analysis manifest. It
+    // reads a static file, so it needs neither a session nor a database.
+    path: '/frame-analysis',
+    element: (
+      <Suspense fallback={<PageFallback />}>
+        <FrameSimilarityExplorer />
+      </Suspense>
+    ),
   },
   {
     path: '/tutorials/:projectId/editor',
