@@ -33,7 +33,7 @@ setuptools>=83.0.0
 # verification of retrieved visual candidates (instadescribe_worker/visual_verification.py);
 # headless keeps the GUI stack out of the worker image.
 numpy>=1.26,<2.0
-Pillow>=12.3.0
+Pillow>=13.0.0
 onnxruntime>=1.28
 opencv-python-headless>=4.10
 
