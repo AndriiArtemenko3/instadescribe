@@ -25,7 +25,7 @@ silero-vad>=6.2.1
 torch>=2.13,<2.14
 torchaudio==2.11.*
 # Security floor for the setuptools runtime dependency pulled by torch.
-setuptools>=83.0.0
+setuptools>=84.1.0
 
 # Numerics + media. onnxruntime also runs the optional CLIP vision ONNX frame
 # embeddings for semantic keyframe selection (instadescribe_worker/frame_embeddings.py).
